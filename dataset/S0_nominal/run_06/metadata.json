@@ -1,0 +1,171 @@
+{
+  "scenario": "S0_nominal",
+  "run_id": "run_06",
+  "camera_id": "usb_cam_01",
+  "board_type": "charuco",
+  "board_config": {
+    "squares_x": 7,
+    "squares_y": 5,
+    "square_length_mm": 30.0,
+    "marker_length_mm": 22.0,
+    "dictionary": "DICT_4X4_50"
+  },
+  "notes": "recaptured nominal run 6 with 2 tripod stands",
+  "reserved_frame_ids": [
+    "frame_013.png",
+    "frame_014.png",
+    "frame_015.png",
+    "frame_016.png",
+    "frame_017.png",
+    "frame_018.png"
+  ],
+  "frame_metadata": {
+    "frame_001.png": {
+      "shot_name": "center_01",
+      "tags": [
+        "center"
+      ],
+      "reserved": false
+    },
+    "frame_002.png": {
+      "shot_name": "center_02",
+      "tags": [
+        "center"
+      ],
+      "reserved": false
+    },
+    "frame_003.png": {
+      "shot_name": "center_03",
+      "tags": [
+        "center"
+      ],
+      "reserved": false
+    },
+    "frame_004.png": {
+      "shot_name": "edge_left",
+      "tags": [
+        "edge",
+        "left"
+      ],
+      "reserved": false
+    },
+    "frame_005.png": {
+      "shot_name": "edge_right",
+      "tags": [
+        "edge",
+        "right"
+      ],
+      "reserved": false
+    },
+    "frame_006.png": {
+      "shot_name": "edge_top",
+      "tags": [
+        "edge",
+        "top"
+      ],
+      "reserved": false
+    },
+    "frame_007.png": {
+      "shot_name": "edge_bottom",
+      "tags": [
+        "edge",
+        "bottom"
+      ],
+      "reserved": false
+    },
+    "frame_008.png": {
+      "shot_name": "tilt_left",
+      "tags": [
+        "tilt",
+        "left"
+      ],
+      "reserved": false
+    },
+    "frame_009.png": {
+      "shot_name": "tilt_right",
+      "tags": [
+        "tilt",
+        "right"
+      ],
+      "reserved": false
+    },
+    "frame_010.png": {
+      "shot_name": "tilt_vertical",
+      "tags": [
+        "tilt",
+        "vertical"
+      ],
+      "reserved": false
+    },
+    "frame_011.png": {
+      "shot_name": "close",
+      "tags": [
+        "distance",
+        "close"
+      ],
+      "reserved": false
+    },
+    "frame_012.png": {
+      "shot_name": "far",
+      "tags": [
+        "distance",
+        "far"
+      ],
+      "reserved": false
+    },
+    "frame_013.png": {
+      "shot_name": "reserve_edge_01",
+      "tags": [
+        "reserved",
+        "diverse",
+        "edge"
+      ],
+      "reserved": true
+    },
+    "frame_014.png": {
+      "shot_name": "reserve_edge_02",
+      "tags": [
+        "reserved",
+        "diverse",
+        "edge"
+      ],
+      "reserved": true
+    },
+    "frame_015.png": {
+      "shot_name": "reserve_tilt_01",
+      "tags": [
+        "reserved",
+        "diverse",
+        "tilt"
+      ],
+      "reserved": true
+    },
+    "frame_016.png": {
+      "shot_name": "reserve_tilt_02",
+      "tags": [
+        "reserved",
+        "diverse",
+        "tilt"
+      ],
+      "reserved": true
+    },
+    "frame_017.png": {
+      "shot_name": "reserve_close",
+      "tags": [
+        "reserved",
+        "diverse",
+        "close"
+      ],
+      "reserved": true
+    },
+    "frame_018.png": {
+      "shot_name": "reserve_far",
+      "tags": [
+        "reserved",
+        "diverse",
+        "far"
+      ],
+      "reserved": true
+    }
+  }
+}

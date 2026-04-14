@@ -1,0 +1,49 @@
+[experiment]
+dataset_root = "dataset"
+results_root = "results"
+max_retries = 3
+initial_frame_count = 12
+reserved_frame_count = 8
+
+[board]
+squares_x = 7
+squares_y = 5
+square_length_mm = 30.0
+marker_length_mm = 22.0
+dictionary_name = "DICT_4X4_50"
+
+[quality]
+min_brightness = 45.0
+max_brightness = 235.0
+min_contrast = 20.0
+min_blur_score = 50.0
+max_saturation_ratio = 0.15
+max_glare_score = 0.35
+
+[failure]
+max_reprojection_error = 2.0
+min_usable_frames = 8
+min_charuco_corners = 12
+min_coverage_score = 0.35
+pose_translation_tolerance_mm = 20.0
+pose_angle_tolerance_deg = 5.0
+max_pose_margin_scale = 1.5
+
+[controller]
+allowed_actions = [
+  "reject_bad_frames",
+  "apply_preprocessing",
+  "request_additional_views",
+  "retry_with_filtered_subset",
+  "relax_nominal_prior",
+  "declare_unrecoverable",
+]
+max_actions_per_decision = 3
+
+[nominal_pose]
+pitch_deg = 0.0
+yaw_deg = 0.0
+roll_deg = 0.0
+tx_mm = 0.0
+ty_mm = 0.0
+tz_mm = 300.0

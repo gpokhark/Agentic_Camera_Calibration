@@ -1,0 +1,31 @@
+{
+  "scenario": "S0_nominal",
+  "run_id": "live_test_01",
+  "camera_id": "usb_cam_01",
+  "board_type": "charuco",
+  "board_config": {
+    "squares_x": 7,
+    "squares_y": 5,
+    "square_length_mm": 30.0,
+    "marker_length_mm": 22.0,
+    "dictionary": "DICT_4X4_50"
+  },
+  "notes": "live guided capture smoke test",
+  "reserved_frame_ids": [],
+  "frame_metadata": {
+    "frame_001.png": {
+      "shot_name": "center_01",
+      "tags": [
+        "center"
+      ],
+      "reserved": false
+    },
+    "frame_002.png": {
+      "shot_name": "center_02",
+      "tags": [
+        "center"
+      ],
+      "reserved": false
+    }
+  }
+}
