@@ -40,6 +40,17 @@ uv sync
 .venv\Scripts\accal run-experiments --dataset-root dataset --output-dir results
 ```
 
+4a. Audit the captured dataset and generate a keep/recapture report:
+
+```powershell
+.venv\Scripts\accal audit-dataset `
+  --dataset-root dataset `
+  --output-dir results/dataset_audit
+```
+
+This produces `dataset_audit.md`, `dataset_audit.json`, and `dataset_audit.csv`
+for review in Markdown, code, or spreadsheet tools.
+
 5. Run a guided USB-camera capture session:
 
 ```powershell

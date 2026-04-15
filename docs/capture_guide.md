@@ -349,6 +349,10 @@ Target count:
 - `10` runs
 - `16` to `20` frames per run
 
+Detailed per-run plan:
+
+- see `docs/s3_pose_deviation_plan.md`
+
 ### `S4_height_variation`
 
 Purpose:

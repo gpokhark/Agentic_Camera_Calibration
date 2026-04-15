@@ -5,6 +5,7 @@ import json
 
 from .capture import capture_dataset_frames, guided_capture_run, write_capture_metadata
 from .config import load_config
+from .dataset_auditor import DatasetAuditor
 from .experiment_runner import ExperimentRunner
 from .models import to_jsonable
 
@@ -18,6 +19,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run-experiments", help="Run all experiment modes on a dataset")
     run_parser.add_argument("--dataset-root", default=None, help="Override dataset root")
     run_parser.add_argument("--output-dir", default=None, help="Override results output directory")
+
+    audit_parser = subparsers.add_parser(
+        "audit-dataset",
+        help="Audit all captured runs and generate a quality/recapture report",
+    )
+    audit_parser.add_argument("--dataset-root", default=None, help="Override dataset root")
+    audit_parser.add_argument("--output-dir", default=None, help="Override audit report output directory")
 
     capture_parser = subparsers.add_parser("capture", help="Capture a dataset run from a USB camera")
     capture_parser.add_argument("--camera-index", type=int, default=0)
@@ -53,6 +61,12 @@ def main() -> None:
         runner = ExperimentRunner(config)
         results = runner.run_all(dataset_root=args.dataset_root, output_dir=args.output_dir)
         print(json.dumps([to_jsonable(result) for result in results], indent=2))
+        return
+
+    if args.command == "audit-dataset":
+        auditor = DatasetAuditor(config)
+        report = auditor.audit_dataset(dataset_root=args.dataset_root, output_dir=args.output_dir)
+        print(json.dumps(to_jsonable(report), indent=2))
         return
 
     if args.command == "capture":
