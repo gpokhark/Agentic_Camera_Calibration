@@ -85,12 +85,34 @@ class HeuristicController(RecoveryController):
 
         if (
             "pose_out_of_range" in reasons
+            and "overexposure" not in reasons
+            and state.mean_saturation_ratio <= 0.15
             and state.mean_glare_score < 0.1
             and state.mean_blur_score >= 50
             and "relax_nominal_prior" in state.allowed_actions
         ):
             actions.append(
                 {"action": "relax_nominal_prior", "params": {"pose_margin_scale": 1.25}}
+            )
+
+        if (
+            "overexposure" in reasons
+            and "low_corner_count" in reasons
+            and "apply_preprocessing" in state.allowed_actions
+        ):
+            actions.append({"action": "apply_preprocessing", "params": {"mode": "clahe"}})
+
+        if (
+            "partial_visibility" in reasons
+            and "low_marker_coverage" in reasons
+            and state.frames_reserved_remaining >= 4
+            and "request_additional_views" in state.allowed_actions
+        ):
+            actions.append(
+                {
+                    "action": "request_additional_views",
+                    "params": {"count": 6, "pattern": "edge_and_tilt"},
+                }
             )
 
         if state.frames_reserved_remaining == 0 and state.reprojection_error and state.reprojection_error > 2.0:
