@@ -20,6 +20,8 @@ class AgentController(RecoveryController):
             return ["uv", "run", "python", "-m", "agentic_camera_calibration.openai_agent"]
         if backend == "claude":
             return ["uv", "run", "python", "-m", "agentic_camera_calibration.claude_agent"]
+        if backend == "lm_studio":
+            return ["uv", "run", "python", "-m", "agentic_camera_calibration.lm_studio_agent"]
         raise RuntimeError(
             f"Unknown agent_backend: {backend!r}. Set agent_backend to 'openai' or 'claude', "
             "or set agent_command explicitly for a custom agent."
@@ -49,11 +51,25 @@ class AgentController(RecoveryController):
         return self._validate_decision(parsed, state)
 
     def _build_payload(self, state: ControllerState) -> dict:
-        model = (
-            self.config.claude_agent_model
-            if self.config.agent_backend == "claude"
-            else self.config.agent_model
-        )
+        backend = self.config.agent_backend
+        if backend == "claude":
+            model = self.config.claude_agent_model
+        elif backend == "lm_studio":
+            model = self.config.lm_studio_model
+        else:
+            model = self.config.agent_model
+
+        agent_settings: dict = {
+            "model": model,
+            "reasoning_effort": self.config.agent_reasoning_effort,
+            "max_output_tokens": self.config.agent_max_output_tokens,
+            "timeout_seconds": self.config.agent_timeout_seconds,
+            "prompt_cache_key": self.config.agent_prompt_cache_key,
+            "prompt_cache_retention": self.config.agent_prompt_cache_retention,
+        }
+        if backend == "lm_studio":
+            agent_settings["base_url"] = self.config.lm_studio_base_url
+
         return {
             "system_prompt": (
                 "You are a camera calibration recovery controller. "
@@ -66,14 +82,7 @@ class AgentController(RecoveryController):
                 "confidence": "number[0,1]",
                 "declare_unrecoverable": "bool",
             },
-            "agent_settings": {
-                "model": model,
-                "reasoning_effort": self.config.agent_reasoning_effort,
-                "max_output_tokens": self.config.agent_max_output_tokens,
-                "timeout_seconds": self.config.agent_timeout_seconds,
-                "prompt_cache_key": self.config.agent_prompt_cache_key,
-                "prompt_cache_retention": self.config.agent_prompt_cache_retention,
-            },
+            "agent_settings": agent_settings,
         }
 
     def _compact_state(self, state: ControllerState) -> dict:

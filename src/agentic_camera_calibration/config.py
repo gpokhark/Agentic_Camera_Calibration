@@ -59,6 +59,8 @@ class ControllerConfig:
     agent_prompt_cache_key: str = "accal-controller-v1"
     agent_prompt_cache_retention: str = "24h"
     claude_agent_model: str = "claude-haiku-4-5-20251001"
+    lm_studio_model: str = "local-model"
+    lm_studio_base_url: str = "http://localhost:1234/v1"
 
 
 @dataclass(slots=True)

@@ -41,9 +41,12 @@ allowed_actions = [
 max_actions_per_decision = 3
 # agent_backend selects the built-in agent: "openai" or "claude"
 # Set agent_command to a custom list to override auto-selection entirely.
+# agent_backend: "openai" | "claude" | "lm_studio"
 agent_backend = "openai"
 agent_model = "gpt-5-mini"
 claude_agent_model = "claude-haiku-4-5-20251001"
+lm_studio_model = "local-model"
+lm_studio_base_url = "http://localhost:1234/v1"
 agent_reasoning_effort = "minimal"
 agent_max_output_tokens = 180
 agent_timeout_seconds = 45
