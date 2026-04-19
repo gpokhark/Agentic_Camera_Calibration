@@ -7,7 +7,14 @@ from .models import ExperimentRunResult, to_jsonable
 
 
 class Reporter:
-    def write_results(self, output_dir: str | Path, results: list[ExperimentRunResult], summary: dict) -> None:
+    def write_results(
+        self,
+        output_dir: str | Path,
+        results: list[ExperimentRunResult],
+        summary: dict,
+        paper_metrics: dict | None = None,
+        scenario_summary: dict | None = None,
+    ) -> None:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
         (output_path / "results.json").write_text(
@@ -18,3 +25,13 @@ class Reporter:
             json.dumps(to_jsonable(summary), indent=2),
             encoding="utf-8",
         )
+        if paper_metrics is not None:
+            (output_path / "paper_metrics.json").write_text(
+                json.dumps(paper_metrics, indent=2),
+                encoding="utf-8",
+            )
+        if scenario_summary is not None:
+            (output_path / "scenario_summary.json").write_text(
+                json.dumps(scenario_summary, indent=2),
+                encoding="utf-8",
+            )
