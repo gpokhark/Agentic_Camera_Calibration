@@ -50,6 +50,15 @@ class ControllerConfig:
     )
     max_actions_per_decision: int = 3
     agent_command: list[str] = field(default_factory=list)
+    agent_backend: str = "openai"
+    agent_model: str = "gpt-5-mini"
+    agent_reasoning_effort: str = "minimal"
+    agent_max_output_tokens: int = 180
+    agent_timeout_seconds: int = 45
+    agent_history_limit: int = 2
+    agent_prompt_cache_key: str = "accal-controller-v1"
+    agent_prompt_cache_retention: str = "24h"
+    claude_agent_model: str = "claude-haiku-4-5-20251001"
 
 
 @dataclass(slots=True)
