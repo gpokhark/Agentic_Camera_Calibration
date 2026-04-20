@@ -57,6 +57,23 @@ DEFAULT_CAPTURE_PLAN: list[CaptureShot] = [
 ]
 
 
+def build_reference_capture_plan(reference_count: int = 3) -> list[CaptureShot]:
+    if reference_count < 1:
+        raise ValueError("reference_count must be at least 1.")
+
+    plan: list[CaptureShot] = []
+    for index in range(reference_count):
+        shot_name = f"reference_{index + 1:02d}"
+        plan.append(
+            CaptureShot(
+                shot_name,
+                ["reference", "fixed_pose", "nominal_compare"],
+                reserved=False,
+            )
+        )
+    return plan
+
+
 def load_frame_image(frame: FrameRecord) -> FrameRecord:
     if frame.image is not None:
         return frame
@@ -149,6 +166,8 @@ def guided_capture_run(
     camera_id: str = "usb_cam_01",
     notes: str = "",
     window_name: str = "Agentic Capture",
+    image_prefix: str = "frame",
+    capture_plan: list[CaptureShot] | None = None,
 ) -> list[FrameRecord]:
     cv2 = _require_cv2()
     output_path = Path(output_dir)
@@ -158,7 +177,10 @@ def guided_capture_run(
     if not capture.isOpened():
         raise RuntimeError(f"Could not open camera index {camera_index}.")
 
-    plan = build_capture_plan(primary_count=primary_count, reserved_count=reserved_count)
+    plan = list(capture_plan) if capture_plan is not None else build_capture_plan(
+        primary_count=primary_count,
+        reserved_count=reserved_count,
+    )
     captured_frames: list[FrameRecord] = []
     captured_shots: list[CaptureShot] = []
     quality_thresholds = quality_thresholds or QualityThresholds()
@@ -199,7 +221,7 @@ def guided_capture_run(
             if key in (27, ord("q")):
                 raise RuntimeError("Capture cancelled by user.")
             if key in (13, 32, ord("c")):
-                frame_name = f"frame_{plan_index + 1:03d}.png"
+                frame_name = f"{image_prefix}_{plan_index + 1:03d}.png"
                 frame_path = output_path / frame_name
                 cv2.imwrite(str(frame_path), image)
                 captured_frames.append(
@@ -241,6 +263,35 @@ def guided_capture_run(
         frames=captured_frames,
     )
     return captured_frames
+
+
+def capture_reference_frames(
+    camera_index: int,
+    output_dir: str | Path,
+    scenario: str,
+    run_id: str,
+    board_config: BoardConfig,
+    quality_thresholds: QualityThresholds | None = None,
+    reference_count: int = 3,
+    camera_id: str = "usb_cam_01",
+    notes: str = "",
+    window_name: str = "Agentic Reference Capture",
+) -> list[FrameRecord]:
+    return guided_capture_run(
+        camera_index=camera_index,
+        output_dir=output_dir,
+        scenario=scenario,
+        run_id=run_id,
+        board_config=board_config,
+        quality_thresholds=quality_thresholds,
+        primary_count=reference_count,
+        reserved_count=0,
+        camera_id=camera_id,
+        notes=notes,
+        window_name=window_name,
+        image_prefix="ref",
+        capture_plan=build_reference_capture_plan(reference_count),
+    )
 
 
 def write_capture_metadata(

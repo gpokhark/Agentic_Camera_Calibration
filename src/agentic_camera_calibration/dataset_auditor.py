@@ -13,24 +13,15 @@ from .config import CalibrationConfig
 from .dataset_loader import DatasetLoader
 from .deviation_analyzer import DeviationAnalyzer
 from .failure_detector import FailureDetector
+from .nominal_reference import (
+    apply_nominal_reference as _apply_nominal_reference,
+    canonicalize_scenario as _canonicalize_scenario,
+    default_nominal_reference as _default_nominal_reference,
+    derive_empirical_nominal_reference as _derive_empirical_nominal_reference,
+    EmpiricalNominalEstimator,
+    is_eligible_nominal_reference as _is_eligible_nominal_reference,
+)
 from .quality_analyzer import QualityAnalyzer
-
-
-def _canonicalize_scenario(name: str) -> str:
-    lowered = name.lower()
-    if "nominal" in lowered:
-        return "S0_nominal"
-    if "overexposed" in lowered:
-        return "S1_overexposed"
-    if "low_light" in lowered or "lowlight" in lowered:
-        return "S2_low_light"
-    if "pose" in lowered:
-        return "S3_pose_deviation"
-    if "height" in lowered:
-        return "S4_height_variation"
-    if "occlusion" in lowered or "partial" in lowered:
-        return "S5_partial_visibility"
-    return name
 
 
 def _expected_run_ids() -> list[str]:
@@ -40,6 +31,7 @@ def _expected_run_ids() -> list[str]:
 def _count_existing_runs(run_ids: list[str]) -> list[str]:
     existing = set(run_ids)
     return [run_id for run_id in _expected_run_ids() if run_id not in existing]
+
 
 
 def _classify_run(
@@ -165,6 +157,7 @@ class DatasetAuditor:
         self.calibration_engine = CalibrationEngine(self.detector, config.failure)
         self.deviation_analyzer = DeviationAnalyzer(config.failure)
         self.failure_detector = FailureDetector(config.failure, config.quality)
+        self.nominal_estimator = EmpiricalNominalEstimator(config)
 
     def audit_dataset(
         self,
@@ -175,12 +168,15 @@ class DatasetAuditor:
         output_dir = Path(output_dir or (self.config.results_root / "dataset_audit"))
         runs = self.loader.discover_runs(dataset_root)
 
-        run_reports = [self._audit_run(run) for run in runs]
+        preliminary_reports = [self._collect_run_metrics(run) for run in runs]
+        nominal_reference = self.nominal_estimator.derive_for_dataset(runs=runs)
+        run_reports = [self._finalize_run_report(report, nominal_reference) for report in preliminary_reports]
         scenario_summary = self._summarize_scenarios(run_reports)
         report = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "dataset_root": str(dataset_root),
             "run_count": len(run_reports),
+            "nominal_reference": nominal_reference,
             "scenario_summary": scenario_summary,
             "runs": run_reports,
         }
@@ -191,24 +187,14 @@ class DatasetAuditor:
         self._write_csv_report(output_dir / "dataset_audit.csv", run_reports)
         return report
 
-    def _audit_run(self, run) -> dict:
+    def _collect_run_metrics(self, run) -> dict:
         initial_frames, reserved_frames = self.loader.split_initial_and_reserved(run.frames)
         initial_metrics = self._analyze_frames(initial_frames)
         all_metrics = self._analyze_frames(run.frames)
-        canonical_scenario = _canonicalize_scenario(run.scenario)
-        classification = _classify_run(
-            canonical_scenario=canonical_scenario,
-            initial_metrics=initial_metrics,
-            all_metrics=all_metrics,
-            metadata_present=bool(run.metadata),
-            initial_frame_count=len(initial_frames),
-            reserved_frame_count=len(reserved_frames),
-            quality_floor_brightness=self.config.quality.min_brightness,
-        )
 
         return {
             "scenario": run.scenario,
-            "canonical_scenario": canonical_scenario,
+            "canonical_scenario": _canonicalize_scenario(run.scenario),
             "run_id": run.run_id,
             "run_path": str(run.run_path),
             "metadata_present": bool(run.metadata),
@@ -216,16 +202,53 @@ class DatasetAuditor:
             "reserved_frame_count": len(reserved_frames),
             "initial_metrics": initial_metrics,
             "all_frame_metrics": all_metrics,
-            **classification,
         }
+
+    def _finalize_run_report(self, report: dict, nominal_reference: dict) -> dict:
+        initial_metrics = _apply_nominal_reference(
+            report["initial_metrics"],
+            nominal_reference,
+            self.config.failure,
+        )
+        all_metrics = _apply_nominal_reference(
+            report["all_frame_metrics"],
+            nominal_reference,
+            self.config.failure,
+        )
+        classification = _classify_run(
+            canonical_scenario=report["canonical_scenario"],
+            initial_metrics=initial_metrics,
+            all_metrics=all_metrics,
+            metadata_present=report["metadata_present"],
+            initial_frame_count=report["primary_frame_count"],
+            reserved_frame_count=report["reserved_frame_count"],
+            quality_floor_brightness=self.config.quality.min_brightness,
+        )
+
+        finalized_report = dict(report)
+        finalized_report["initial_metrics"] = initial_metrics
+        finalized_report["all_frame_metrics"] = all_metrics
+        finalized_report.update(classification)
+        return finalized_report
 
     def _analyze_frames(self, frames: list) -> dict:
         detections = [self.detector.detect(frame) for frame in frames]
         quality_metrics = [self.quality_analyzer.analyze(frame) for frame in frames]
         calibration = self.calibration_engine.calibrate(frames, detections)
-        deviation = None
+        absolute_pose = None
         if calibration.success:
-            deviation = self.deviation_analyzer.compute_deviation(calibration, self.config.nominal_pose)
+            absolute_pose = self.deviation_analyzer.compute_deviation(
+                calibration,
+                nominal_pose=self.config.nominal_pose.__class__(
+                    pitch_deg=0.0,
+                    yaw_deg=0.0,
+                    roll_deg=0.0,
+                    tx_mm=0.0,
+                    ty_mm=0.0,
+                    tz_mm=0.0,
+                ),
+            )
+        deviation = self.deviation_analyzer.compute_deviation(calibration, self.config.nominal_pose) if calibration.success else None
         failure = self.failure_detector.evaluate(calibration, deviation, quality_metrics, detections)
 
         successful_detections = [item for item in detections if item.detection_success]
@@ -258,6 +281,14 @@ class DatasetAuditor:
             "tx_mm": None if deviation is None else round(deviation.tx_mm, 3),
             "ty_mm": None if deviation is None else round(deviation.ty_mm, 3),
             "tz_mm": None if deviation is None else round(deviation.tz_mm, 3),
+            "estimated_pitch_deg": None if absolute_pose is None else round(absolute_pose.pitch_deg, 3),
+            "estimated_yaw_deg": None if absolute_pose is None else round(absolute_pose.yaw_deg, 3),
+            "estimated_roll_deg": None if absolute_pose is None else round(absolute_pose.roll_deg, 3),
+            "estimated_tx_mm": None if absolute_pose is None else round(absolute_pose.tx_mm, 3),
+            "estimated_ty_mm": None if absolute_pose is None else round(absolute_pose.ty_mm, 3),
+            "estimated_tz_mm": None if absolute_pose is None else round(absolute_pose.tz_mm, 3),
+            "nominal_reference_source": "config_defaults",
+            "nominal_reference_run_count": 0,
         }
 
     def _summarize_scenarios(self, run_reports: list[dict]) -> list[dict]:
@@ -290,6 +321,19 @@ class DatasetAuditor:
         lines.append(f"- Generated: `{report['generated_at']}`")
         lines.append(f"- Dataset root: `{report['dataset_root']}`")
         lines.append(f"- Runs audited: `{report['run_count']}`")
+        lines.append("")
+        lines.append("## Nominal Reference")
+        lines.append("")
+        nominal_reference = report["nominal_reference"]
+        lines.append(f"- Source: `{nominal_reference['source']}`")
+        lines.append(f"- Derived from: `{nominal_reference['derived_from']}`")
+        if nominal_reference["run_ids"]:
+            lines.append(f"- Runs used: `{', '.join(nominal_reference['run_ids'])}`")
+        lines.append(
+            f"- Reference pose: pitch `{nominal_reference['pitch_deg']}`, yaw `{nominal_reference['yaw_deg']}`, "
+            f"roll `{nominal_reference['roll_deg']}`, tx `{nominal_reference['tx_mm']}` mm, "
+            f"ty `{nominal_reference['ty_mm']}` mm, tz `{nominal_reference['tz_mm']}` mm"
+        )
         lines.append("")
         lines.append("## Scenario Summary")
         lines.append("")
@@ -329,6 +373,13 @@ class DatasetAuditor:
                     f"brightness `{all_frames['mean_brightness']}`, "
                     f"reprojection `{all_frames['reprojection_error']}`"
                 )
+                if all_frames["estimated_tz_mm"] is not None:
+                    lines.append(
+                        f"- Pose estimate vs `{all_frames['nominal_reference_source']}`: "
+                        f"pitch `{all_frames['pitch_deg']}`, yaw `{all_frames['yaw_deg']}`, "
+                        f"roll `{all_frames['roll_deg']}`, tx `{all_frames['tx_mm']}` mm, "
+                        f"ty `{all_frames['ty_mm']}` mm, tz `{all_frames['tz_mm']}` mm"
+                    )
                 if run_report["notes"]:
                     lines.append("- Notes:")
                     for note in run_report["notes"]:
@@ -378,6 +429,14 @@ class DatasetAuditor:
             "tx_mm",
             "ty_mm",
             "tz_mm",
+            "estimated_pitch_deg",
+            "estimated_yaw_deg",
+            "estimated_roll_deg",
+            "estimated_tx_mm",
+            "estimated_ty_mm",
+            "estimated_tz_mm",
+            "nominal_reference_source",
+            "nominal_reference_run_count",
             "notes",
         ]
         with path.open("w", encoding="utf-8", newline="") as handle:
@@ -426,6 +485,14 @@ class DatasetAuditor:
                         "tx_mm": all_frames["tx_mm"],
                         "ty_mm": all_frames["ty_mm"],
                         "tz_mm": all_frames["tz_mm"],
+                        "estimated_pitch_deg": all_frames["estimated_pitch_deg"],
+                        "estimated_yaw_deg": all_frames["estimated_yaw_deg"],
+                        "estimated_roll_deg": all_frames["estimated_roll_deg"],
+                        "estimated_tx_mm": all_frames["estimated_tx_mm"],
+                        "estimated_ty_mm": all_frames["estimated_ty_mm"],
+                        "estimated_tz_mm": all_frames["estimated_tz_mm"],
+                        "nominal_reference_source": all_frames["nominal_reference_source"],
+                        "nominal_reference_run_count": all_frames["nominal_reference_run_count"],
                         "notes": " | ".join(report["notes"]),
                     }
                 )

@@ -3,7 +3,7 @@ import shutil
 import unittest
 from pathlib import Path
 
-from agentic_camera_calibration.capture import build_capture_plan, write_capture_metadata
+from agentic_camera_calibration.capture import build_capture_plan, build_reference_capture_plan, write_capture_metadata
 from agentic_camera_calibration.config import BoardConfig
 from agentic_camera_calibration.models import FrameRecord
 
@@ -14,6 +14,13 @@ class CapturePlanTests(unittest.TestCase):
         self.assertEqual(len(plan), 18)
         self.assertFalse(any(shot.reserved for shot in plan[:12]))
         self.assertTrue(all(shot.reserved for shot in plan[12:]))
+
+    def test_build_reference_capture_plan_uses_reference_shots(self) -> None:
+        plan = build_reference_capture_plan(reference_count=3)
+        self.assertEqual(len(plan), 3)
+        self.assertEqual([shot.name for shot in plan], ["reference_01", "reference_02", "reference_03"])
+        self.assertFalse(any(shot.reserved for shot in plan))
+        self.assertTrue(all("reference" in shot.tags for shot in plan))
 
     def test_write_capture_metadata_records_reserved_and_tags(self) -> None:
         output_dir = Path("tests/.tmp_capture_plan")

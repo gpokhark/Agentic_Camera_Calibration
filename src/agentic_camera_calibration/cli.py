@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from .capture import capture_dataset_frames, guided_capture_run, write_capture_metadata
+from .capture import capture_dataset_frames, capture_reference_frames, guided_capture_run, write_capture_metadata
 from .config import load_config
 from .dataset_auditor import DatasetAuditor
 from .experiment_runner import ExperimentRunner
@@ -48,6 +48,18 @@ def build_parser() -> argparse.ArgumentParser:
     guided_capture_parser.add_argument("--reserved-count", type=int, default=6)
     guided_capture_parser.add_argument("--camera-id", default="usb_cam_01")
     guided_capture_parser.add_argument("--notes", default="")
+
+    reference_capture_parser = subparsers.add_parser(
+        "capture-reference",
+        help="Capture fixed reference frames for nominal-vs-disturbed comparison",
+    )
+    reference_capture_parser.add_argument("--camera-index", type=int, default=0)
+    reference_capture_parser.add_argument("--output-dir", required=True)
+    reference_capture_parser.add_argument("--scenario", required=True)
+    reference_capture_parser.add_argument("--run-id", required=True)
+    reference_capture_parser.add_argument("--frame-count", type=int, default=3)
+    reference_capture_parser.add_argument("--camera-id", default="usb_cam_01")
+    reference_capture_parser.add_argument("--notes", default="")
 
     return parser
 
@@ -99,6 +111,21 @@ def main() -> None:
             quality_thresholds=config.quality,
             primary_count=args.primary_count,
             reserved_count=args.reserved_count,
+            camera_id=args.camera_id,
+            notes=args.notes,
+        )
+        print(json.dumps([frame.frame_id for frame in frames], indent=2))
+        return
+
+    if args.command == "capture-reference":
+        frames = capture_reference_frames(
+            camera_index=args.camera_index,
+            output_dir=args.output_dir,
+            scenario=args.scenario,
+            run_id=args.run_id,
+            board_config=config.board,
+            quality_thresholds=config.quality,
+            reference_count=args.frame_count,
             camera_id=args.camera_id,
             notes=args.notes,
         )

@@ -101,6 +101,11 @@ If your camera software allows it, disable autofocus and autoexposure during
 nominal capture. For disturbed scenarios, only change the parameter that is
 part of the scenario. That keeps the dataset easier to analyze later.
 
+Optional fixed reference-frame guidance:
+
+- for cleaner nominal-versus-disturbed comparison, especially in `S3` and `S4`,
+  see `docs/reference_frame_guide.md`
+
 ## Folder Structure
 
 Store the dataset like this:
@@ -275,6 +280,15 @@ How to capture:
 - keep the camera at the reference height and angle
 - collect the full 12-frame diversity pattern
 
+Clarification:
+
+- for `S0_nominal`, the camera should stay fixed
+- it is correct to move the board up, down, left, right, closer, and farther
+  between frames
+- the board does not need to stay at one constant physical height across the
+  run
+- this board movement is part of the intended geometric diversity
+
 Target count:
 
 - `10` runs
@@ -365,6 +379,13 @@ How to capture:
 - keep the changed height consistent within a run
 - vary the amount of height change across runs
 
+Clarification:
+
+- unlike `S0_nominal`, `S4_height_variation` changes the **camera height**
+  intentionally
+- you should still move the board between frames using the normal shot plan
+- the disturbance in `S4` is the camera height, not a fixed board position
+
 Recommended height changes:
 
 - mild: `10` to `20` mm
@@ -375,6 +396,10 @@ Target count:
 
 - `10` runs
 - `16` to `20` frames per run
+
+Detailed per-run plan:
+
+- see `docs/s4_height_variation_plan.md`
 
 ### `S5_partial_visibility`
 
@@ -397,6 +422,10 @@ Target count:
 
 - `10` runs
 - `16` to `20` frames per run
+
+Detailed per-run plan:
+
+- see `docs/s5_partial_visibility_plan.md`
 
 ## Run Planning Template
 

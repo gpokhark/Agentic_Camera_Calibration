@@ -1,6 +1,12 @@
 import unittest
 
-from agentic_camera_calibration.dataset_auditor import _canonicalize_scenario, _classify_run
+from agentic_camera_calibration.config import FailureThresholds
+from agentic_camera_calibration.dataset_auditor import (
+    _apply_nominal_reference,
+    _canonicalize_scenario,
+    _classify_run,
+    _derive_empirical_nominal_reference,
+)
 
 
 def _base_metrics() -> dict:
@@ -17,6 +23,14 @@ def _base_metrics() -> dict:
         "deviation_within_nominal_bounds": False,
         "deviation_aggregate_pose_error": 6.0,
         "tz_mm": 0.0,
+        "estimated_pitch_deg": 0.0,
+        "estimated_yaw_deg": 0.0,
+        "estimated_roll_deg": 0.0,
+        "estimated_tx_mm": 0.0,
+        "estimated_ty_mm": 0.0,
+        "estimated_tz_mm": 300.0,
+        "nominal_reference_source": "config_defaults",
+        "nominal_reference_run_count": 0,
     }
 
 
@@ -80,6 +94,85 @@ class DatasetAuditorTests(unittest.TestCase):
         )
         self.assertEqual(decision["status"], "recapture")
         self.assertTrue(decision["recapture_recommended"])
+
+    def test_empirical_nominal_reference_uses_good_s0_runs(self) -> None:
+        report_a = {
+            "canonical_scenario": "S0_nominal",
+            "run_id": "run_01",
+            "initial_metrics": {
+                **_base_metrics(),
+                "estimated_pitch_deg": 1.0,
+                "estimated_yaw_deg": 2.0,
+                "estimated_roll_deg": 3.0,
+                "estimated_tx_mm": 10.0,
+                "estimated_ty_mm": 0.0,
+                "estimated_tz_mm": 305.0,
+            },
+        }
+        report_b = {
+            "canonical_scenario": "S0_nominal",
+            "run_id": "run_02",
+            "initial_metrics": {
+                **_base_metrics(),
+                "estimated_pitch_deg": 3.0,
+                "estimated_yaw_deg": 4.0,
+                "estimated_roll_deg": 5.0,
+                "estimated_tx_mm": 14.0,
+                "estimated_ty_mm": 2.0,
+                "estimated_tz_mm": 315.0,
+            },
+        }
+
+        baseline = _derive_empirical_nominal_reference([report_a, report_b])
+
+        self.assertIsNotNone(baseline)
+        self.assertEqual(baseline["source"], "empirical_s0")
+        self.assertEqual(baseline["run_count"], 2)
+        self.assertEqual(baseline["run_ids"], ["run_01", "run_02"])
+        self.assertEqual(baseline["pitch_deg"], 2.0)
+        self.assertEqual(baseline["yaw_deg"], 3.0)
+        self.assertEqual(baseline["roll_deg"], 4.0)
+        self.assertEqual(baseline["tx_mm"], 12.0)
+        self.assertEqual(baseline["ty_mm"], 1.0)
+        self.assertEqual(baseline["tz_mm"], 310.0)
+
+    def test_apply_nominal_reference_recomputes_pose_delta_and_reason_codes(self) -> None:
+        metrics = {
+            **_base_metrics(),
+            "reason_codes": ["low_marker_coverage", "pose_out_of_range"],
+            "estimated_pitch_deg": 4.0,
+            "estimated_yaw_deg": 2.0,
+            "estimated_roll_deg": 1.0,
+            "estimated_tx_mm": 12.0,
+            "estimated_ty_mm": 0.0,
+            "estimated_tz_mm": 321.0,
+        }
+        baseline = {
+            "source": "empirical_s0",
+            "run_count": 3,
+            "run_ids": ["run_01", "run_02", "run_03"],
+            "pitch_deg": 1.0,
+            "yaw_deg": 2.0,
+            "roll_deg": 1.0,
+            "tx_mm": 12.0,
+            "ty_mm": 0.0,
+            "tz_mm": 300.0,
+            "derived_from": "test",
+        }
+
+        updated = _apply_nominal_reference(metrics, baseline, FailureThresholds())
+
+        self.assertEqual(updated["nominal_reference_source"], "empirical_s0")
+        self.assertEqual(updated["nominal_reference_run_count"], 3)
+        self.assertEqual(updated["pitch_deg"], 3.0)
+        self.assertEqual(updated["yaw_deg"], 0.0)
+        self.assertEqual(updated["roll_deg"], 0.0)
+        self.assertEqual(updated["tx_mm"], 0.0)
+        self.assertEqual(updated["ty_mm"], 0.0)
+        self.assertEqual(updated["tz_mm"], 21.0)
+        self.assertFalse(updated["deviation_within_nominal_bounds"])
+        self.assertIn("pose_out_of_range", updated["reason_codes"])
+        self.assertIn("low_marker_coverage", updated["reason_codes"])
 
 
 if __name__ == "__main__":

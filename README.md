@@ -1,57 +1,53 @@
 # Agentic Camera Calibration
 
-This repository implements a single-camera ChArUco calibration pipeline with
-three comparison modes:
+This repository implements a single-camera ChArUco calibration experiment
+pipeline for comparing three recovery modes under controlled disturbance
+scenarios:
 
-- baseline calibration
-- heuristic recovery
-- agent-style recovery with the same action space
+- `baseline`: one-pass calibration with no recovery controller
+- `heuristic`: rule-based recovery over a fixed action space
+- `agent`: external LLM-backed recovery over the same action space
 
-The implementation follows the design in `docs/PRD.md` and
-`docs/architecture.md`.
+The project is designed around an offline experimental loop:
 
-For data collection instructions, see `docs/capture_guide.md`.
+1. capture scenario-based runs from a USB camera
+2. audit the dataset quality and disturbance fit
+3. run baseline, heuristic, and agent comparisons
+4. export summary metrics and per-run outputs for analysis
 
-## Quick start
+Reference design notes live in [docs/PRD.md](docs/PRD.md),
+[docs/architecture.md](docs/architecture.md), and
+[docs/capture_guide.md](docs/capture_guide.md).
 
-1. Create the virtual environment:
+## Setup
+
+Create the virtual environment with `uv`:
 
 ```powershell
 $env:UV_CACHE_DIR = "$PWD\\.uv-cache"
 uv venv --python 3.12 .venv
 ```
 
-2. Install dependencies:
+Install dependencies:
 
 ```powershell
 $env:UV_CACHE_DIR = "$PWD\\.uv-cache"
 uv sync
 ```
 
-3. Run the unit tests:
+Run the unit tests:
 
 ```powershell
 .venv\Scripts\python -m unittest discover -s tests -v
 ```
 
-4. Run experiments on a dataset:
+## Complete Workflow
 
-```powershell
-.venv\Scripts\accal run-experiments --dataset-root dataset --output-dir results
-```
+The normal workflow is capture -> audit -> experiment run -> inspect results.
 
-4a. Audit the captured dataset and generate a keep/recapture report:
+### 1. Capture a Dataset Run
 
-```powershell
-.venv\Scripts\accal audit-dataset `
-  --dataset-root dataset `
-  --output-dir results/dataset_audit
-```
-
-This produces `dataset_audit.md`, `dataset_audit.json`, and `dataset_audit.csv`
-for review in Markdown, code, or spreadsheet tools.
-
-5. Run a guided USB-camera capture session:
+Use guided capture for the main run:
 
 ```powershell
 .venv\Scripts\accal capture-guided `
@@ -60,15 +56,122 @@ for review in Markdown, code, or spreadsheet tools.
   --scenario S0_nominal `
   --run-id run_01 `
   --primary-count 12 `
-  --reserved-count 6
+  --reserved-count 6 `
+  --notes "nominal capture run"
 ```
 
-The guided preview now shows live ChArUco detection and basic image-quality
-feedback before you save each frame.
+Use fixed reference-frame capture when you want a small set of stable comparison
+images for disturbed scenarios:
 
-## Dataset expectations
+```powershell
+.venv\Scripts\accal capture-reference `
+  --camera-index 0 `
+  --output-dir dataset/S3_pose_deviation/run_01/reference_frames `
+  --scenario S3_pose_deviation `
+  --run-id run_01 `
+  --frame-count 3 `
+  --notes "fixed reference frames before disturbed capture"
+```
 
-The runner expects the scenario/run structure described in `docs/architecture.md`:
+What gets written:
+
+- `frame_001.png`, `frame_002.png`, ... for guided capture
+- `ref_001.png`, `ref_002.png`, ... for reference capture
+- `metadata.json` describing scenario, run id, board config, notes, and frame tags
+
+### 2. Audit the Dataset Before Running Experiments
+
+Run the dataset auditor first. This is the fastest way to find weak runs before
+spending time on the full comparison pipeline.
+
+```powershell
+.venv\Scripts\accal audit-dataset `
+  --dataset-root dataset `
+  --output-dir results/dataset_audit
+```
+
+This generates:
+
+- `results/dataset_audit/dataset_audit.md`
+- `results/dataset_audit/dataset_audit.json`
+- `results/dataset_audit/dataset_audit.csv`
+
+The auditor checks:
+
+- frame counts and metadata presence
+- ChArUco detection success
+- quality metrics such as brightness, blur, saturation, and glare
+- calibration success and reprojection error
+- whether the run actually looks like the intended scenario
+- whether a run should be kept, kept with notes, or recaptured
+
+When usable `S0_nominal` runs exist, the auditor also derives an empirical
+nominal reference pose and uses it when judging `S3_pose_deviation` and
+`S4_height_variation`.
+
+### 3. Run the Full Comparison Analysis
+
+Run all experiment modes across the dataset:
+
+```powershell
+.venv\Scripts\accal run-experiments `
+  --dataset-root dataset `
+  --output-dir results/comparison_run
+```
+
+This produces:
+
+- `results/comparison_run/results.json`
+- `results/comparison_run/summary.json`
+- `results/comparison_run/paper_metrics.json`
+- `results/comparison_run/scenario_summary.json`
+- `results/comparison_run/nominal_reference.json`
+
+What this stage does:
+
+- loads every run under `dataset/`
+- splits each run into primary and reserved frames
+- derives an effective nominal reference from good `S0_nominal` runs
+- executes `baseline`, `heuristic`, and `agent` modes on each run
+- summarizes recovery rate, false reject rate, reprojection error, and retries
+
+### 4. Review the Outputs
+
+Use the outputs for different levels of analysis:
+
+- `dataset_audit.md` for human review of run quality and recapture decisions
+- `results.json` for per-run debugging and controller traces
+- `summary.json` for overall mode-level metrics
+- `scenario_summary.json` for scenario-by-scenario tables
+- `paper_metrics.json` for headline comparison numbers such as recovery rate
+
+## Agent Configuration
+
+Agent mode no longer falls back to the heuristic controller. It runs a real
+external agent command and fails fast if that command fails.
+
+The default controller config is in [config/defaults.toml](config/defaults.toml)
+and currently points to:
+
+- `uv run python -m agentic_camera_calibration.openai_agent`
+- model `gpt-5-mini`
+- reasoning effort `minimal`
+- max output tokens `180`
+- prompt cache key `accal-controller-v1`
+
+Before running agent-backed experiments, set `OPENAI_API_KEY` in your shell:
+
+```powershell
+$env:OPENAI_API_KEY = "your-key-here"
+```
+
+If you want to work on the classical pipeline only, audit the dataset and run
+tests first, then edit `config/defaults.toml` or use a local agent backend
+before launching `run-experiments`.
+
+## Dataset Layout
+
+The runner expects a scenario/run directory layout like this:
 
 ```text
 dataset/
@@ -77,7 +180,143 @@ dataset/
       frame_001.png
       frame_002.png
       metadata.json
+  S1_overexposed/
+    run_01/
+  S2_low_light/
+    run_01/
+  S3_pose_deviation/
+    run_01/
+  S4_height_variation/
+    run_01/
+  S5_partial_visibility/
+    run_01/
 ```
 
-Frames beyond the configured `initial_frame_count` are treated as reserved
-recovery frames unless `metadata.json` explicitly marks them.
+Frames after the configured `initial_frame_count` are treated as reserved unless
+`metadata.json` explicitly marks them.
+
+## Current Pipeline Architecture
+
+The runtime pipeline is:
+
+```text
+USB camera or dataset frames
+  -> dataset loading / capture metadata
+  -> ChArUco detection
+  -> image quality analysis
+  -> camera calibration
+  -> pose deviation analysis
+  -> failure detection
+  -> controller decision
+  -> recovery execution
+  -> retry loop or terminal result
+  -> experiment summaries and reports
+```
+
+The important architectural rule is that `baseline`, `heuristic`, and `agent`
+share the same detection, quality, calibration, deviation, failure, and action
+execution layers. The only thing that changes is the decision layer.
+
+## File Map
+
+This is the quickest way to understand which file is responsible for what in
+the current codebase.
+
+### Entry Points And Configuration
+
+- [src/agentic_camera_calibration/cli.py](src/agentic_camera_calibration/cli.py)
+  defines the `accal` CLI commands: `capture`, `capture-guided`,
+  `capture-reference`, `audit-dataset`, and `run-experiments`.
+- [src/agentic_camera_calibration/config.py](src/agentic_camera_calibration/config.py)
+  defines all configuration dataclasses and loads `config/defaults.toml`.
+- [config/defaults.toml](config/defaults.toml) stores experiment thresholds,
+  controller defaults, board geometry, and nominal pose values.
+
+### Shared Data Models
+
+- [src/agentic_camera_calibration/models.py](src/agentic_camera_calibration/models.py)
+  defines the dataclasses passed across the pipeline: `FrameRecord`,
+  `DetectionResult`, `QualityMetrics`, `CalibrationResult`,
+  `DeviationResult`, `ControllerState`, `RecoveryDecision`, and
+  `ExperimentRunResult`.
+
+### Capture And Dataset Preparation
+
+- [src/agentic_camera_calibration/capture.py](src/agentic_camera_calibration/capture.py)
+  handles USB camera capture, guided capture plans, live OpenCV preview,
+  reference-frame capture, and writing `metadata.json`.
+- [src/agentic_camera_calibration/dataset_loader.py](src/agentic_camera_calibration/dataset_loader.py)
+  discovers scenario/run folders, loads run metadata, constructs `FrameRecord`
+  objects, and splits primary versus reserved frames.
+- [src/agentic_camera_calibration/dataset_auditor.py](src/agentic_camera_calibration/dataset_auditor.py)
+  runs a full dataset quality audit, classifies runs as keep or recapture, and
+  writes Markdown, JSON, and CSV reports.
+- [src/agentic_camera_calibration/nominal_reference.py](src/agentic_camera_calibration/nominal_reference.py)
+  canonicalizes scenario names, derives empirical nominal pose baselines from
+  good `S0_nominal` runs, and reapplies that baseline to run metrics.
+
+### Per-Frame And Per-Run Analysis
+
+- [src/agentic_camera_calibration/charuco_detector.py](src/agentic_camera_calibration/charuco_detector.py)
+  performs ArUco and ChArUco detection and estimates per-frame pose when
+  possible.
+- [src/agentic_camera_calibration/quality_analyzer.py](src/agentic_camera_calibration/quality_analyzer.py)
+  computes brightness, contrast, blur, saturation, glare, and per-frame
+  usability flags.
+- [src/agentic_camera_calibration/calibration_engine.py](src/agentic_camera_calibration/calibration_engine.py)
+  runs the OpenCV ChArUco calibration from the active frame set.
+- [src/agentic_camera_calibration/deviation_analyzer.py](src/agentic_camera_calibration/deviation_analyzer.py)
+  converts calibration output into pitch, yaw, roll, `tx`, `ty`, `tz`, and
+  aggregate pose error relative to the nominal pose.
+- [src/agentic_camera_calibration/failure_detector.py](src/agentic_camera_calibration/failure_detector.py)
+  converts calibration, quality, and detection signals into reason codes and a
+  pass-versus-intervene decision.
+
+### Controllers And Recovery
+
+- [src/agentic_camera_calibration/controllers/base.py](src/agentic_camera_calibration/controllers/base.py)
+  defines the abstract recovery-controller interface.
+- [src/agentic_camera_calibration/controllers/heuristic_controller.py](src/agentic_camera_calibration/controllers/heuristic_controller.py)
+  implements the rule-based controller over the shared action space.
+- [src/agentic_camera_calibration/controllers/agent_controller.py](src/agentic_camera_calibration/controllers/agent_controller.py)
+  packages `ControllerState`, invokes an external agent command, and validates
+  the returned JSON decision.
+- [src/agentic_camera_calibration/openai_agent.py](src/agentic_camera_calibration/openai_agent.py)
+  is the OpenAI Responses API wrapper used by the default external agent mode.
+- [src/agentic_camera_calibration/claude_agent.py](src/agentic_camera_calibration/claude_agent.py)
+  is the Anthropic-compatible external agent wrapper.
+- [src/agentic_camera_calibration/lm_studio_agent.py](src/agentic_camera_calibration/lm_studio_agent.py)
+  is the local LM Studio agent wrapper.
+- [src/agentic_camera_calibration/recovery_executor.py](src/agentic_camera_calibration/recovery_executor.py)
+  applies recovery actions such as filtering frames, preprocessing images,
+  pulling reserved frames, selecting top-k subsets, and relaxing pose margins.
+- [src/agentic_camera_calibration/orchestrator.py](src/agentic_camera_calibration/orchestrator.py)
+  is the main retry loop that runs detection, quality, calibration, deviation,
+  failure evaluation, controller decision, and recovery execution until success
+  or termination.
+
+### Experiment Execution And Reporting
+
+- [src/agentic_camera_calibration/experiment_runner.py](src/agentic_camera_calibration/experiment_runner.py)
+  coordinates full-dataset experiments across `baseline`, `heuristic`, and
+  `agent` modes and writes the derived nominal reference used for the run.
+- [src/agentic_camera_calibration/evaluator.py](src/agentic_camera_calibration/evaluator.py)
+  computes summary metrics, paper metrics, and scenario-wise aggregates.
+- [src/agentic_camera_calibration/reporter.py](src/agentic_camera_calibration/reporter.py)
+  writes experiment outputs to JSON files under the chosen results directory.
+
+## Typical Analysis Sequence
+
+If you want one concrete sequence to follow on a fresh machine, use this:
+
+```powershell
+$env:UV_CACHE_DIR = "$PWD\\.uv-cache"
+uv venv --python 3.12 .venv
+uv sync
+.venv\Scripts\python -m unittest discover -s tests -v
+.venv\Scripts\accal audit-dataset --dataset-root dataset --output-dir results/dataset_audit
+.venv\Scripts\accal run-experiments --dataset-root dataset --output-dir results/comparison_run
+```
+
+If you are also collecting new data, insert `capture-guided` and optional
+`capture-reference` commands before the audit step.
