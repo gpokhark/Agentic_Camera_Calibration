@@ -58,6 +58,7 @@ class ControllerConfig:
     agent_history_limit: int = 2
     agent_prompt_cache_key: str = "accal-controller-v1"
     agent_prompt_cache_retention: str = "24h"
+    learned_min_action_score: float = 0.8
     claude_agent_model: str = "claude-haiku-4-5-20251001"
     lm_studio_model: str = "local-model"
     lm_studio_base_url: str = "http://localhost:1234/v1"
@@ -70,6 +71,10 @@ class ExperimentConfig:
     max_retries: int = 3
     initial_frame_count: int = 12
     reserved_frame_count: int = 8
+    audit_min_primary_frames: int = 12
+    audit_min_reserved_frames: int = 4
+    fixed_target_audit_min_primary_frames: int = 6
+    fixed_target_audit_min_reserved_frames: int = 3
 
 
 @dataclass(slots=True)

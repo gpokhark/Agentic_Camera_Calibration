@@ -36,11 +36,14 @@ def _count_existing_runs(run_ids: list[str]) -> list[str]:
 
 def _classify_run(
     canonical_scenario: str,
+    setup_type: str,
     initial_metrics: dict,
     all_metrics: dict,
     metadata_present: bool,
     initial_frame_count: int,
     reserved_frame_count: int,
+    required_primary_frame_count: int,
+    required_reserved_frame_count: int,
     quality_floor_brightness: float,
 ) -> dict:
     notes: list[str] = []
@@ -49,11 +52,17 @@ def _classify_run(
     if not metadata_present:
         notes.append("metadata.json missing or unreadable")
         recapture_recommended = True
-    if initial_frame_count < 12:
-        notes.append(f"only {initial_frame_count} primary frames found; expected at least 12")
+    if initial_frame_count < required_primary_frame_count:
+        notes.append(
+            f"only {initial_frame_count} primary frames found; "
+            f"expected at least {required_primary_frame_count} for {setup_type}"
+        )
         recapture_recommended = True
-    if reserved_frame_count < 4:
-        notes.append(f"only {reserved_frame_count} reserved frames found; expected at least 4")
+    if reserved_frame_count < required_reserved_frame_count:
+        notes.append(
+            f"only {reserved_frame_count} reserved frames found; "
+            f"expected at least {required_reserved_frame_count} for {setup_type}"
+        )
         recapture_recommended = True
     if not all_metrics["calibration_success"]:
         notes.append("calibration failed on the full run")
@@ -163,10 +172,16 @@ class DatasetAuditor:
         self,
         dataset_root: str | Path | None = None,
         output_dir: str | Path | None = None,
+        setup_types: list[str] | None = None,
+        dataset_splits: list[str] | None = None,
     ) -> dict:
         dataset_root = Path(dataset_root or self.config.dataset_root)
         output_dir = Path(output_dir or (self.config.results_root / "dataset_audit"))
-        runs = self.loader.discover_runs(dataset_root)
+        runs = self._filter_runs(
+            self.loader.discover_runs(dataset_root),
+            setup_types=setup_types,
+            dataset_splits=dataset_splits,
+        )
 
         preliminary_reports = [self._collect_run_metrics(run) for run in runs]
         nominal_reference = self.nominal_estimator.derive_for_dataset(runs=runs)
@@ -175,9 +190,13 @@ class DatasetAuditor:
         report = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "dataset_root": str(dataset_root),
+            "selected_setup_types": list(setup_types or []),
+            "selected_dataset_splits": list(dataset_splits or []),
             "run_count": len(run_reports),
             "nominal_reference": nominal_reference,
             "scenario_summary": scenario_summary,
+            "setup_summary": self._summarize_setup_types(run_reports),
+            "split_summary": self._summarize_dataset_splits(run_reports),
             "runs": run_reports,
         }
 
@@ -196,6 +215,8 @@ class DatasetAuditor:
             "scenario": run.scenario,
             "canonical_scenario": _canonicalize_scenario(run.scenario),
             "run_id": run.run_id,
+            "setup_type": run.setup_type,
+            "dataset_split": run.dataset_split,
             "run_path": str(run.run_path),
             "metadata_present": bool(run.metadata),
             "primary_frame_count": len(initial_frames),
@@ -215,21 +236,40 @@ class DatasetAuditor:
             nominal_reference,
             self.config.failure,
         )
+        required_primary_frame_count, required_reserved_frame_count = self._required_frame_counts(
+            report["setup_type"]
+        )
         classification = _classify_run(
             canonical_scenario=report["canonical_scenario"],
+            setup_type=report["setup_type"],
             initial_metrics=initial_metrics,
             all_metrics=all_metrics,
             metadata_present=report["metadata_present"],
             initial_frame_count=report["primary_frame_count"],
             reserved_frame_count=report["reserved_frame_count"],
+            required_primary_frame_count=required_primary_frame_count,
+            required_reserved_frame_count=required_reserved_frame_count,
             quality_floor_brightness=self.config.quality.min_brightness,
         )
 
         finalized_report = dict(report)
         finalized_report["initial_metrics"] = initial_metrics
         finalized_report["all_frame_metrics"] = all_metrics
+        finalized_report["required_primary_frame_count"] = required_primary_frame_count
+        finalized_report["required_reserved_frame_count"] = required_reserved_frame_count
         finalized_report.update(classification)
         return finalized_report
+
+    def _required_frame_counts(self, setup_type: str) -> tuple[int, int]:
+        if setup_type.casefold() == "benchmark_fixed_target":
+            return (
+                self.config.experiment.fixed_target_audit_min_primary_frames,
+                self.config.experiment.fixed_target_audit_min_reserved_frames,
+            )
+        return (
+            self.config.experiment.audit_min_primary_frames,
+            self.config.experiment.audit_min_reserved_frames,
+        )
 
     def _analyze_frames(self, frames: list) -> dict:
         detections = [self.detector.detect(frame) for frame in frames]
@@ -314,6 +354,67 @@ class DatasetAuditor:
             )
         return summaries
 
+    def _summarize_setup_types(self, run_reports: list[dict]) -> list[dict]:
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for report in run_reports:
+            grouped[report["setup_type"]].append(report)
+
+        summaries: list[dict] = []
+        for setup_type, reports in sorted(grouped.items()):
+            statuses = Counter(report["status"] for report in reports)
+            usable_count = sum(1 for report in reports if report["usable_for_analysis"])
+            summaries.append(
+                {
+                    "setup_type": setup_type,
+                    "runs_found": len(reports),
+                    "usable_runs": usable_count,
+                    "keep_runs": statuses.get("keep", 0),
+                    "keep_with_note_runs": statuses.get("keep_with_note", 0),
+                    "recapture_runs": statuses.get("recapture", 0),
+                }
+            )
+        return summaries
+
+    def _summarize_dataset_splits(self, run_reports: list[dict]) -> list[dict]:
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for report in run_reports:
+            grouped[report["dataset_split"]].append(report)
+
+        summaries: list[dict] = []
+        for dataset_split, reports in sorted(grouped.items()):
+            statuses = Counter(report["status"] for report in reports)
+            usable_count = sum(1 for report in reports if report["usable_for_analysis"])
+            summaries.append(
+                {
+                    "dataset_split": dataset_split,
+                    "runs_found": len(reports),
+                    "usable_runs": usable_count,
+                    "keep_runs": statuses.get("keep", 0),
+                    "keep_with_note_runs": statuses.get("keep_with_note", 0),
+                    "recapture_runs": statuses.get("recapture", 0),
+                }
+            )
+        return summaries
+
+    def _filter_runs(
+        self,
+        runs: list,
+        setup_types: list[str] | None = None,
+        dataset_splits: list[str] | None = None,
+    ) -> list:
+        setup_type_filter = {item.casefold() for item in setup_types or []}
+        dataset_split_filter = {item.casefold() for item in dataset_splits or []}
+
+        filtered = [
+            run
+            for run in runs
+            if (not setup_type_filter or run.setup_type.casefold() in setup_type_filter)
+            and (not dataset_split_filter or run.dataset_split.casefold() in dataset_split_filter)
+        ]
+        if not filtered:
+            raise ValueError("No dataset runs matched the provided --setup-type/--dataset-split filters.")
+        return filtered
+
     def _build_markdown_report(self, report: dict) -> str:
         lines: list[str] = []
         lines.append("# Dataset Audit Report")
@@ -321,6 +422,10 @@ class DatasetAuditor:
         lines.append(f"- Generated: `{report['generated_at']}`")
         lines.append(f"- Dataset root: `{report['dataset_root']}`")
         lines.append(f"- Runs audited: `{report['run_count']}`")
+        if report["selected_setup_types"]:
+            lines.append(f"- Setup type filter: `{', '.join(report['selected_setup_types'])}`")
+        if report["selected_dataset_splits"]:
+            lines.append(f"- Dataset split filter: `{', '.join(report['selected_dataset_splits'])}`")
         lines.append("")
         lines.append("## Nominal Reference")
         lines.append("")
@@ -345,6 +450,26 @@ class DatasetAuditor:
                 f"| {item['scenario']} | {item['runs_found']} | {item['usable_runs']} | "
                 f"{item['keep_runs']} | {item['keep_with_note_runs']} | {item['recapture_runs']} | {missing} |"
             )
+        lines.append("")
+        lines.append("## Setup Summary")
+        lines.append("")
+        lines.append("| Setup Type | Runs Found | Usable | Keep | Keep With Note | Recapture |")
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for item in report["setup_summary"]:
+            lines.append(
+                f"| {item['setup_type']} | {item['runs_found']} | {item['usable_runs']} | "
+                f"{item['keep_runs']} | {item['keep_with_note_runs']} | {item['recapture_runs']} |"
+            )
+        lines.append("")
+        lines.append("## Split Summary")
+        lines.append("")
+        lines.append("| Dataset Split | Runs Found | Usable | Keep | Keep With Note | Recapture |")
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for item in report["split_summary"]:
+            lines.append(
+                f"| {item['dataset_split']} | {item['runs_found']} | {item['usable_runs']} | "
+                f"{item['keep_runs']} | {item['keep_with_note_runs']} | {item['recapture_runs']} |"
+            )
 
         grouped: dict[str, list[dict]] = defaultdict(list)
         for run_report in report["runs"]:
@@ -360,9 +485,15 @@ class DatasetAuditor:
                 lines.append(f"### {run_report['run_id']}")
                 lines.append("")
                 lines.append(f"- Status: `{run_report['status']}`")
+                lines.append(f"- Setup type: `{run_report['setup_type']}`")
+                lines.append(f"- Dataset split: `{run_report['dataset_split']}`")
                 lines.append(f"- Usable for analysis: `{run_report['usable_for_analysis']}`")
                 lines.append(f"- Recapture recommended: `{run_report['recapture_recommended']}`")
                 lines.append(f"- Primary / reserved frames: `{run_report['primary_frame_count']}` / `{run_report['reserved_frame_count']}`")
+                lines.append(
+                    f"- Required primary / reserved minimum: "
+                    f"`{run_report['required_primary_frame_count']}` / `{run_report['required_reserved_frame_count']}`"
+                )
                 lines.append(
                     f"- Initial metrics: detection rate `{initial['detection_success_rate']}`, "
                     f"usable rate `{initial['usable_rate']}`, reprojection `{initial['reprojection_error']}`"
@@ -394,6 +525,8 @@ class DatasetAuditor:
             "scenario",
             "canonical_scenario",
             "run_id",
+            "setup_type",
+            "dataset_split",
             "run_path",
             "status",
             "usable_for_analysis",
@@ -450,6 +583,8 @@ class DatasetAuditor:
                         "scenario": report["scenario"],
                         "canonical_scenario": report["canonical_scenario"],
                         "run_id": report["run_id"],
+                        "setup_type": report["setup_type"],
+                        "dataset_split": report["dataset_split"],
                         "run_path": report["run_path"],
                         "status": report["status"],
                         "usable_for_analysis": report["usable_for_analysis"],

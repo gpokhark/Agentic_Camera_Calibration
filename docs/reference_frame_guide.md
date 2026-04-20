@@ -6,6 +6,7 @@ for cleaner nominal-versus-disturbed comparison, especially for:
 - `S0_nominal`
 - `S3_pose_deviation`
 - `S4_height_variation`
+- `S5_partial_visibility` when you want a fixed clean comparison before occlusion
 
 These reference frames are **in addition to** the normal guided capture run.
 They are intended for:
@@ -40,9 +41,30 @@ Capture reference frames:
 - for at least `3` to `5` good `S0_nominal` runs
 - for every `S3_pose_deviation` run if possible
 - for every `S4_height_variation` run if possible
+- for `S5_partial_visibility` if you want a clean fixed view before adding the occluder
 
 You may also capture them for other scenarios, but they matter most for `S3`
 and `S4`.
+
+## Scenario Priority
+
+If time is limited, use this priority order:
+
+1. `S0_nominal`
+2. `S3_pose_deviation`
+3. `S4_height_variation`
+4. `S5_partial_visibility`
+5. `S1_overexposed`
+6. `S2_low_light`
+
+How to interpret that list:
+
+- `S0`, `S3`, and `S4` are the highest-value reference-frame scenarios because
+  they support cleaner nominal-versus-geometry comparison
+- `S5` is the next best candidate because a clean fixed frame before occlusion
+  makes the partial-visibility disturbance easier to explain in the paper
+- `S1` and `S2` reference frames are optional for first-pass work and are mostly
+  helpful for figures, sanity checks, or later paper visuals
 
 ## How Many To Capture
 
@@ -128,6 +150,7 @@ The only thing that should differ across scenarios is the scenario disturbance:
 - `S0`: nominal camera setup
 - `S3`: changed camera angle
 - `S4`: changed camera height
+- `S5`: same nominal setup first, then deliberate occlusion during the guided run
 
 ## Standard Reference Pose
 
@@ -216,6 +239,39 @@ Important:
 The point is to observe how the changed camera height affects the same
 reference scene.
 
+## Capture Sequence For `S5_partial_visibility`
+
+For a partial-visibility run:
+
+1. Keep the camera in the normal nominal setup.
+2. Place the board at the same standard reference position used for `S0`.
+3. Capture `ref_001.png`, `ref_002.png`, and `ref_003.png` **without any
+   occluder**.
+4. After the reference frames are done, start the normal guided run.
+5. During the guided run, introduce the planned occlusion pattern for that run.
+
+Recommended occlusion behavior during the guided run:
+
+- partially cover one edge or one corner of the board
+- vary the covered region between frames
+- keep enough of the board visible that ChArUco detection is degraded, not
+  completely impossible
+- avoid fully hiding the board in every frame unless you intentionally want a
+  severe run
+
+Important:
+
+- do not place the occluder during the fixed reference captures
+- do not move the camera to compensate for the occlusion
+- do not use glare or low light at the same time unless you are deliberately
+  collecting a mixed-condition run
+
+The role of the `S5` reference frames is:
+
+- show the clean nominal view for that run
+- make the later occlusion easier to interpret
+- provide cleaner paper figures and manual comparison
+
 ## What Not To Do
 
 Avoid these mistakes:
@@ -265,6 +321,14 @@ If you want the simplest practical version, do this:
 
 That alone is enough to make future comparison much stronger.
 
+If you are moving next to `S5_partial_visibility`, use this practical sequence:
+
+1. Set the camera to the normal nominal pose.
+2. Place the board at the marked reference position.
+3. Run `capture-reference` and save `3` clean fixed reference frames.
+4. Start `capture-guided` for the `S5_partial_visibility` run.
+5. Introduce partial occlusion during the guided capture frames only.
+
 ## Efficient Workflow For Future Capture
 
 To avoid doubling your effort, use this sequence for each new `S3` or `S4`
@@ -274,7 +338,8 @@ run:
 2. Place the board at the marked reference position.
 3. Run `capture-reference` and save `3` fixed reference images.
 4. Without changing the camera disturbance, start `capture-guided`.
-5. Move the board through the normal `12 + 6` capture sequence.
+5. Move the board through the normal legacy `12 + 6` capture sequence, or the
+   fixed-target `6 + 3` sequence if you are following the EOL-style benchmark.
 
 This adds only a small amount of extra time per run and gives you much cleaner
 comparison data.

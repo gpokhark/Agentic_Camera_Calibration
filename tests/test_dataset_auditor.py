@@ -46,11 +46,14 @@ class DatasetAuditorTests(unittest.TestCase):
         all_frames["reason_codes"] = ["low_marker_coverage", "pose_out_of_range"]
         decision = _classify_run(
             canonical_scenario="S0_nominal",
+            setup_type="legacy_moving_target",
             initial_metrics=initial,
             all_metrics=all_frames,
             metadata_present=True,
             initial_frame_count=12,
             reserved_frame_count=6,
+            required_primary_frame_count=12,
+            required_reserved_frame_count=4,
             quality_floor_brightness=45.0,
         )
         self.assertEqual(decision["status"], "keep_with_note")
@@ -67,11 +70,14 @@ class DatasetAuditorTests(unittest.TestCase):
         all_frames["reason_codes"] = ["low_light", "blur_or_low_detail"]
         decision = _classify_run(
             canonical_scenario="S2_low_light",
+            setup_type="legacy_moving_target",
             initial_metrics=initial,
             all_metrics=all_frames,
             metadata_present=True,
             initial_frame_count=12,
             reserved_frame_count=6,
+            required_primary_frame_count=12,
+            required_reserved_frame_count=4,
             quality_floor_brightness=45.0,
         )
         self.assertIn(decision["status"], {"keep", "keep_with_note"})
@@ -85,11 +91,52 @@ class DatasetAuditorTests(unittest.TestCase):
         all_frames["mean_glare"] = 0.0
         decision = _classify_run(
             canonical_scenario="S1_overexposed",
+            setup_type="legacy_moving_target",
             initial_metrics=initial,
             all_metrics=all_frames,
             metadata_present=True,
             initial_frame_count=12,
             reserved_frame_count=6,
+            required_primary_frame_count=12,
+            required_reserved_frame_count=4,
+            quality_floor_brightness=45.0,
+        )
+        self.assertEqual(decision["status"], "recapture")
+        self.assertTrue(decision["recapture_recommended"])
+
+    def test_fixed_target_run_with_six_plus_three_is_not_flagged_for_frame_count(self) -> None:
+        initial = _base_metrics()
+        all_frames = _base_metrics()
+        decision = _classify_run(
+            canonical_scenario="S3_pose_deviation",
+            setup_type="benchmark_fixed_target",
+            initial_metrics=initial,
+            all_metrics=all_frames,
+            metadata_present=True,
+            initial_frame_count=6,
+            reserved_frame_count=3,
+            required_primary_frame_count=6,
+            required_reserved_frame_count=3,
+            quality_floor_brightness=45.0,
+        )
+        self.assertNotEqual(decision["status"], "recapture")
+        self.assertFalse(
+            any("primary frames found" in note or "reserved frames found" in note for note in decision["notes"])
+        )
+
+    def test_legacy_run_with_six_plus_three_is_still_flagged_for_frame_count(self) -> None:
+        initial = _base_metrics()
+        all_frames = _base_metrics()
+        decision = _classify_run(
+            canonical_scenario="S3_pose_deviation",
+            setup_type="legacy_moving_target",
+            initial_metrics=initial,
+            all_metrics=all_frames,
+            metadata_present=True,
+            initial_frame_count=6,
+            reserved_frame_count=3,
+            required_primary_frame_count=12,
+            required_reserved_frame_count=4,
             quality_floor_brightness=45.0,
         )
         self.assertEqual(decision["status"], "recapture")

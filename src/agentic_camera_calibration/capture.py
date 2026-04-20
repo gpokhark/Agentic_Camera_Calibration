@@ -93,6 +93,8 @@ def capture_dataset_frames(
     frame_count: int,
     scenario: str,
     run_id: str,
+    setup_type: str = "unspecified",
+    dataset_split: str = "unspecified",
     image_prefix: str = "frame",
 ) -> list[FrameRecord]:
     cv2 = _require_cv2()
@@ -117,6 +119,8 @@ def capture_dataset_frames(
                     frame_id=frame_name,
                     scenario=scenario,
                     run_id=run_id,
+                    setup_type=setup_type,
+                    dataset_split=dataset_split,
                     image_path=frame_path,
                     image=image,
                 )
@@ -165,6 +169,8 @@ def guided_capture_run(
     reserved_count: int = 6,
     camera_id: str = "usb_cam_01",
     notes: str = "",
+    setup_type: str = "unspecified",
+    dataset_split: str = "unspecified",
     window_name: str = "Agentic Capture",
     image_prefix: str = "frame",
     capture_plan: list[CaptureShot] | None = None,
@@ -229,6 +235,8 @@ def guided_capture_run(
                         frame_id=frame_name,
                         scenario=scenario,
                         run_id=run_id,
+                        setup_type=setup_type,
+                        dataset_split=dataset_split,
                         image_path=frame_path,
                         image=image,
                         is_reserved=shot.reserved,
@@ -260,6 +268,8 @@ def guided_capture_run(
         board_config=board_config,
         camera_id=camera_id,
         notes=notes,
+        setup_type=setup_type,
+        dataset_split=dataset_split,
         frames=captured_frames,
     )
     return captured_frames
@@ -275,6 +285,8 @@ def capture_reference_frames(
     reference_count: int = 3,
     camera_id: str = "usb_cam_01",
     notes: str = "",
+    setup_type: str = "unspecified",
+    dataset_split: str = "unspecified",
     window_name: str = "Agentic Reference Capture",
 ) -> list[FrameRecord]:
     return guided_capture_run(
@@ -288,6 +300,8 @@ def capture_reference_frames(
         reserved_count=0,
         camera_id=camera_id,
         notes=notes,
+        setup_type=setup_type,
+        dataset_split=dataset_split,
         window_name=window_name,
         image_prefix="ref",
         capture_plan=build_reference_capture_plan(reference_count),
@@ -301,6 +315,8 @@ def write_capture_metadata(
     board_config: BoardConfig,
     camera_id: str,
     notes: str,
+    setup_type: str,
+    dataset_split: str,
     frames: list[FrameRecord],
 ) -> Path:
     output_path = Path(output_dir)
@@ -317,6 +333,8 @@ def write_capture_metadata(
     metadata = {
         "scenario": scenario,
         "run_id": run_id,
+        "setup_type": setup_type,
+        "dataset_split": dataset_split,
         "camera_id": camera_id,
         "board_type": "charuco",
         "board_config": {

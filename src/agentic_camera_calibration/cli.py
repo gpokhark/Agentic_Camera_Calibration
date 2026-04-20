@@ -19,6 +19,37 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run-experiments", help="Run all experiment modes on a dataset")
     run_parser.add_argument("--dataset-root", default=None, help="Override dataset root")
     run_parser.add_argument("--output-dir", default=None, help="Override results output directory")
+    run_parser.add_argument(
+        "--scenario",
+        action="append",
+        default=[],
+        help="Limit execution to one or more scenario names such as S3_pose_deviation",
+    )
+    run_parser.add_argument(
+        "--run-id",
+        action="append",
+        default=[],
+        help="Limit execution to one or more run ids such as run_03",
+    )
+    run_parser.add_argument(
+        "--mode",
+        action="append",
+        choices=("baseline", "heuristic", "learned", "agent"),
+        default=[],
+        help="Select which modes to execute; repeat to run multiple modes",
+    )
+    run_parser.add_argument(
+        "--setup-type",
+        action="append",
+        default=[],
+        help="Limit execution to one or more setup types such as benchmark_fixed_target",
+    )
+    run_parser.add_argument(
+        "--dataset-split",
+        action="append",
+        default=[],
+        help="Limit execution to one or more dataset splits such as train, dev, or eval",
+    )
 
     audit_parser = subparsers.add_parser(
         "audit-dataset",
@@ -26,6 +57,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     audit_parser.add_argument("--dataset-root", default=None, help="Override dataset root")
     audit_parser.add_argument("--output-dir", default=None, help="Override audit report output directory")
+    audit_parser.add_argument(
+        "--setup-type",
+        action="append",
+        default=[],
+        help="Limit the audit to one or more setup types such as benchmark_fixed_target",
+    )
+    audit_parser.add_argument(
+        "--dataset-split",
+        action="append",
+        default=[],
+        help="Limit the audit to one or more dataset splits such as train, dev, or eval",
+    )
 
     capture_parser = subparsers.add_parser("capture", help="Capture a dataset run from a USB camera")
     capture_parser.add_argument("--camera-index", type=int, default=0)
@@ -35,6 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
     capture_parser.add_argument("--frame-count", type=int, default=12)
     capture_parser.add_argument("--camera-id", default="usb_cam_01")
     capture_parser.add_argument("--notes", default="")
+    capture_parser.add_argument("--setup-type", default="unspecified")
+    capture_parser.add_argument("--dataset-split", default="unspecified")
 
     guided_capture_parser = subparsers.add_parser(
         "capture-guided",
@@ -48,6 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
     guided_capture_parser.add_argument("--reserved-count", type=int, default=6)
     guided_capture_parser.add_argument("--camera-id", default="usb_cam_01")
     guided_capture_parser.add_argument("--notes", default="")
+    guided_capture_parser.add_argument("--setup-type", default="unspecified")
+    guided_capture_parser.add_argument("--dataset-split", default="unspecified")
 
     reference_capture_parser = subparsers.add_parser(
         "capture-reference",
@@ -60,6 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     reference_capture_parser.add_argument("--frame-count", type=int, default=3)
     reference_capture_parser.add_argument("--camera-id", default="usb_cam_01")
     reference_capture_parser.add_argument("--notes", default="")
+    reference_capture_parser.add_argument("--setup-type", default="unspecified")
+    reference_capture_parser.add_argument("--dataset-split", default="unspecified")
 
     return parser
 
@@ -71,13 +120,26 @@ def main() -> None:
 
     if args.command == "run-experiments":
         runner = ExperimentRunner(config)
-        results = runner.run_all(dataset_root=args.dataset_root, output_dir=args.output_dir)
+        results = runner.run_all(
+            dataset_root=args.dataset_root,
+            output_dir=args.output_dir,
+            scenarios=args.scenario,
+            run_ids=args.run_id,
+            modes=args.mode,
+            setup_types=args.setup_type,
+            dataset_splits=args.dataset_split,
+        )
         print(json.dumps([to_jsonable(result) for result in results], indent=2))
         return
 
     if args.command == "audit-dataset":
         auditor = DatasetAuditor(config)
-        report = auditor.audit_dataset(dataset_root=args.dataset_root, output_dir=args.output_dir)
+        report = auditor.audit_dataset(
+            dataset_root=args.dataset_root,
+            output_dir=args.output_dir,
+            setup_types=args.setup_type,
+            dataset_splits=args.dataset_split,
+        )
         print(json.dumps(to_jsonable(report), indent=2))
         return
 
@@ -88,6 +150,8 @@ def main() -> None:
             frame_count=args.frame_count,
             scenario=args.scenario,
             run_id=args.run_id,
+            setup_type=args.setup_type,
+            dataset_split=args.dataset_split,
         )
         write_capture_metadata(
             output_dir=args.output_dir,
@@ -96,6 +160,8 @@ def main() -> None:
             board_config=config.board,
             camera_id=args.camera_id,
             notes=args.notes,
+            setup_type=args.setup_type,
+            dataset_split=args.dataset_split,
             frames=frames,
         )
         print(json.dumps([frame.frame_id for frame in frames], indent=2))
@@ -113,6 +179,8 @@ def main() -> None:
             reserved_count=args.reserved_count,
             camera_id=args.camera_id,
             notes=args.notes,
+            setup_type=args.setup_type,
+            dataset_split=args.dataset_split,
         )
         print(json.dumps([frame.frame_id for frame in frames], indent=2))
         return
@@ -128,6 +196,8 @@ def main() -> None:
             reference_count=args.frame_count,
             camera_id=args.camera_id,
             notes=args.notes,
+            setup_type=args.setup_type,
+            dataset_split=args.dataset_split,
         )
         print(json.dumps([frame.frame_id for frame in frames], indent=2))
         return

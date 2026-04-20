@@ -4,6 +4,10 @@ results_root = "results"
 max_retries = 3
 initial_frame_count = 12
 reserved_frame_count = 8
+audit_min_primary_frames = 12
+audit_min_reserved_frames = 4
+fixed_target_audit_min_primary_frames = 6
+fixed_target_audit_min_reserved_frames = 3
 
 [board]
 squares_x = 7
@@ -53,6 +57,7 @@ agent_timeout_seconds = 45
 agent_history_limit = 2
 agent_prompt_cache_key = "accal-controller-v1"
 agent_prompt_cache_retention = "24h"
+learned_min_action_score = 0.8
 
 [nominal_pose]
 pitch_deg = 0.0

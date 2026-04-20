@@ -30,6 +30,8 @@ class CalibrationOrchestrator:
         controller: RecoveryController | None,
         run_id: str,
         scenario: str,
+        setup_type: str,
+        dataset_split: str,
         mode_name: str,
     ) -> ExperimentRunResult:
         active_frames = list(initial_frames)
@@ -55,18 +57,24 @@ class CalibrationOrchestrator:
                 deviation,
                 quality,
                 detections,
+                scenario=scenario,
             )
 
             if failure_eval.status == "pass":
                 return ExperimentRunResult(
                     mode=mode_name,
-                    status="success",
+                    status="accept_with_warning" if failure_eval.warning_codes else "success",
                     run_id=run_id,
                     scenario=scenario,
+                    setup_type=setup_type,
+                    dataset_split=dataset_split,
                     retry_index=retry_index,
                     calibration_result=calibration_result,
                     deviation_result=deviation,
                     attempted_actions=attempted_actions,
+                    reason_codes=failure_eval.reason_codes,
+                    warning_codes=failure_eval.warning_codes,
+                    hard_fail_codes=failure_eval.hard_fail_codes,
                 )
 
             if controller is None or retry_index == self.config.experiment.max_retries:
@@ -75,11 +83,15 @@ class CalibrationOrchestrator:
                     status="failed",
                     run_id=run_id,
                     scenario=scenario,
+                    setup_type=setup_type,
+                    dataset_split=dataset_split,
                     retry_index=retry_index,
                     calibration_result=calibration_result,
                     deviation_result=deviation,
                     attempted_actions=attempted_actions,
                     reason_codes=failure_eval.reason_codes,
+                    warning_codes=failure_eval.warning_codes,
+                    hard_fail_codes=failure_eval.hard_fail_codes,
                 )
 
             state = self._build_controller_state(
@@ -104,9 +116,15 @@ class CalibrationOrchestrator:
                     status="failed_unrecoverable",
                     run_id=run_id,
                     scenario=scenario,
+                    setup_type=setup_type,
+                    dataset_split=dataset_split,
                     retry_index=retry_index,
+                    calibration_result=calibration_result,
+                    deviation_result=deviation,
                     attempted_actions=attempted_actions,
                     reason_codes=failure_eval.reason_codes,
+                    warning_codes=failure_eval.warning_codes,
+                    hard_fail_codes=failure_eval.hard_fail_codes,
                     decision=decision,
                 )
 
@@ -135,6 +153,8 @@ class CalibrationOrchestrator:
             status="failed",
             run_id=run_id,
             scenario=scenario,
+            setup_type=setup_type,
+            dataset_split=dataset_split,
             retry_index=self.config.experiment.max_retries,
             attempted_actions=attempted_actions,
         )
@@ -170,6 +190,8 @@ class CalibrationOrchestrator:
         return ControllerState(
             run_id=run_id,
             scenario=scenario,
+            setup_type=active_frames[0].setup_type if active_frames else "unspecified",
+            dataset_split=active_frames[0].dataset_split if active_frames else "unspecified",
             retry_index=retry_index,
             frames_total=len(active_frames) + len(reserved_frames),
             frames_active=len(active_frames),

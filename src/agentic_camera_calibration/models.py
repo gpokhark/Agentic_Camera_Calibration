@@ -13,6 +13,8 @@ class FrameRecord:
     frame_id: str
     scenario: str
     run_id: str
+    setup_type: str = "unspecified"
+    dataset_split: str = "unspecified"
     image_path: Path | None = None
     image: Any | None = None
     is_reserved: bool = False
@@ -25,6 +27,8 @@ class RunRecord:
     scenario: str
     run_path: Path
     frames: list[FrameRecord]
+    setup_type: str = "unspecified"
+    dataset_split: str = "unspecified"
     metadata: JsonDict = field(default_factory=dict)
 
 
@@ -87,6 +91,8 @@ class FailureEvaluation:
     status: str
     reason_codes: list[str]
     confidence: float
+    warning_codes: list[str] = field(default_factory=list)
+    hard_fail_codes: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -110,6 +116,8 @@ class ControllerState:
     reason_codes: list[str]
     attempted_actions: list[JsonDict]
     allowed_actions: list[str]
+    setup_type: str = "unspecified"
+    dataset_split: str = "unspecified"
 
 
 @dataclass(slots=True)
@@ -127,10 +135,14 @@ class ExperimentRunResult:
     run_id: str
     scenario: str
     retry_index: int
+    setup_type: str = "unspecified"
+    dataset_split: str = "unspecified"
     calibration_result: CalibrationResult | None = None
     deviation_result: DeviationResult | None = None
     attempted_actions: list[JsonDict] = field(default_factory=list)
     reason_codes: list[str] = field(default_factory=list)
+    warning_codes: list[str] = field(default_factory=list)
+    hard_fail_codes: list[str] = field(default_factory=list)
     decision: RecoveryDecision | None = None
 
 

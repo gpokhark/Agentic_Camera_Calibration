@@ -6,6 +6,25 @@ from .config import FailureThresholds, QualityThresholds
 from .models import CalibrationResult, DeviationResult, DetectionResult, FailureEvaluation, QualityMetrics
 
 
+def _canonicalize_scenario(name: str | None) -> str:
+    if not name:
+        return ""
+    lowered = name.casefold()
+    if "nominal" in lowered:
+        return "S0_nominal"
+    if "overexposed" in lowered:
+        return "S1_overexposed"
+    if "low_light" in lowered or "lowlight" in lowered:
+        return "S2_low_light"
+    if "pose" in lowered:
+        return "S3_pose_deviation"
+    if "height" in lowered:
+        return "S4_height_variation"
+    if "partial" in lowered or "occlusion" in lowered:
+        return "S5_partial_visibility"
+    return name
+
+
 class FailureDetector:
     def __init__(self, failure_thresholds: FailureThresholds, quality_thresholds: QualityThresholds) -> None:
         self.failure_thresholds = failure_thresholds
@@ -17,6 +36,7 @@ class FailureDetector:
         deviation_result: DeviationResult | None,
         quality_metrics: list[QualityMetrics],
         detections: list[DetectionResult],
+        scenario: str | None = None,
     ) -> FailureEvaluation:
         reason_codes: list[str] = []
 
@@ -68,11 +88,66 @@ class FailureDetector:
 
         unique_reason_codes = list(dict.fromkeys(reason_codes))
         if not unique_reason_codes:
-            return FailureEvaluation(status="pass", reason_codes=[], confidence=0.95)
+            return FailureEvaluation(
+                status="pass",
+                reason_codes=[],
+                confidence=0.95,
+                warning_codes=[],
+                hard_fail_codes=[],
+            )
+
+        calibration_confident = (
+            calibration_result.success
+            and calibration_result.reprojection_error is not None
+            and calibration_result.reprojection_error <= self.failure_thresholds.max_reprojection_error
+            and calibration_result.valid_frames_used >= max(4, self.failure_thresholds.min_usable_frames // 2)
+            and mean_corners >= self.failure_thresholds.min_charuco_corners
+            and bool(successful_detections)
+        )
+        very_low_reprojection = (
+            calibration_result.reprojection_error is not None
+            and calibration_result.reprojection_error <= min(0.5, self.failure_thresholds.max_reprojection_error * 0.25)
+        )
+        canonical_scenario = _canonicalize_scenario(scenario)
+        warning_codes: list[str] = []
+        hard_fail_codes: list[str] = []
+        severe_codes = {"calibration_failed", "high_reprojection_error", "low_corner_count", "partial_visibility"}
+
+        for code in unique_reason_codes:
+            if code in severe_codes:
+                hard_fail_codes.append(code)
+                continue
+
+            if code == "pose_out_of_range":
+                if canonical_scenario in {"S3_pose_deviation", "S4_height_variation"}:
+                    warning_codes.append(code)
+                elif calibration_confident and very_low_reprojection:
+                    warning_codes.append(code)
+                else:
+                    hard_fail_codes.append(code)
+                continue
+
+            if code == "low_marker_coverage":
+                if calibration_confident and mean_corners >= self.failure_thresholds.min_charuco_corners * 1.5:
+                    warning_codes.append(code)
+                else:
+                    hard_fail_codes.append(code)
+                continue
+
+            if code in {"insufficient_usable_frames", "overexposure", "low_light", "blur_or_low_detail", "glare"}:
+                if calibration_confident:
+                    warning_codes.append(code)
+                else:
+                    hard_fail_codes.append(code)
+                continue
+
+            hard_fail_codes.append(code)
 
         confidence = min(0.95, 0.35 + len(unique_reason_codes) * 0.08)
         return FailureEvaluation(
-            status="intervene",
+            status="pass" if not hard_fail_codes else "intervene",
             reason_codes=unique_reason_codes,
             confidence=confidence,
+            warning_codes=warning_codes,
+            hard_fail_codes=hard_fail_codes,
         )

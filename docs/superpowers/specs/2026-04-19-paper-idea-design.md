@@ -1,188 +1,387 @@
-# Paper Idea Design: Agentic Recovery for Camera Calibration
+# Paper Idea Design: Publishable EOL-Proxy Direction
 
-- **Date:** 2026-04-19 (revised after full codebase re-analysis)
-- **Target venue:** IEEE CASE / ICMA or arXiv
-- **Status:** Approved — ready for implementation planning
-
----
-
-## 1. Title
-
-> *Agentic Recovery for Camera Calibration Under Real-World Variability: A Controlled Comparison of Heuristic and LLM-Based Decision Making*
+- Date: 2026-04-19
+- Target venue: IEEE CASE / IROS workshop / arXiv
+- Status: revised after pipeline review and EOL-alignment discussion
 
 ---
 
-## 2. Abstract Frame
+## 1. Working Title
 
-Camera calibration in production environments fails not because the geometry is wrong, but because the decision system cannot distinguish recoverable failures from genuine misalignment. We present a calibration recovery framework that interposes a decision layer — heuristic or LLM-based — between a standard ChArUco/OpenCV pipeline and its retry logic. The framework first derives an empirical nominal reference pose from collected S0 data, grounding all deviation comparisons in the actual camera geometry rather than hardcoded assumptions. Using a controlled dataset of five disturbance scenarios (overexposure, low light, pose deviation, height variation, and compound combinations), we show that the LLM agent reduces false reject rate on nominal-adjacent runs while recovering a larger fraction of compound failures than a carefully engineered heuristic baseline. Both systems share identical inputs, action space, retry budget, and executor — making the comparison a direct measure of decision quality.
-
----
-
-## 3. Core Claim
-
-1. A rule-based heuristic over-triggers on recoverable runs and under-performs on interacting failures.
-2. An LLM agent operating over the same compact structured state is more calibrated in both directions — reducing unnecessary aborts while recovering more compound failures.
+Agentic Recovery for Target-Based Camera Pose Estimation and Calibration
+Acceptance Under End-of-Line-Like Disturbances
 
 ---
 
-## 4. System Architecture
+## 2. Problem Frame
 
-```
-S0 Frames → EmpiricalNominalEstimator ─────────────────────────────┐
-                                                                    ↓ (NominalPoseConfig)
-Frames → CharucoDetector → QualityAnalyzer → CalibrationEngine
-                                                      ↓
-                                            DeviationAnalyzer (vs empirical nominal)
-                                                      ↓
-                                            FailureDetector
-                                                      ↓ (if fail)
-                                            AgentController._compact_state()
-                                                      ↓ (JSON payload via subprocess)
-                                            openai_agent.py → gpt-5-mini (Responses API)
-                                            OR HeuristicController (threshold + compound rules)
-                                                      ↓
-                                            RecoveryExecutor.execute()
-                                                      ↓
-                                              re-run calibration
-```
+In automotive end-of-line calibration, a vehicle arrives at a station that has
+a fixed floor calibration target. The system already has nominal camera
+geometry from CAD and flashed configuration. The station then observes the
+fixed target, estimates how the real installed camera differs from nominal, and
+uses that deviation estimate to support downstream view correction and
+stitching.
 
-**Empirical nominal reference:** Before running any experiment, `EmpiricalNominalEstimator` analyzes S0 runs, selects those with good calibration quality (reprojection < 1.0 px, usable rate ≥ 0.75, no lighting failures), and computes mean pose estimates as the dataset-specific nominal. This replaces the hardcoded `[nominal_pose]` in `config/defaults.toml` and prevents false `pose_out_of_range` alarms from config-default mismatch.
+The practical failure problem is not only geometric estimation. It is also a
+decision problem:
 
-**LLM agent:** `AgentController` calls `openai_agent.py` via subprocess, passing a compact JSON state (last 2 attempted actions, rounded metrics) and `agent_settings` (model, reasoning effort, token cap, cache key). `openai_agent.py` calls the OpenAI Responses API using stdlib `urllib` — no external SDK dependency. Default model: `gpt-5-mini`, reasoning effort: `minimal`, max output tokens: `180`. The heuristic fallback has been removed; if `agent_command` is empty, `AgentController` raises `RuntimeError`.
+- is the evidence trustworthy enough to accept?
+- should the system retry, filter, or request another view?
+- is the issue true misalignment or degraded observation quality?
 
-### Fairness of Comparison
-
-| Component | Baseline | Heuristic | LLM Agent |
-|---|---|---|---|
-| Input state (`ControllerState`) | shared | shared | shared (compact form) |
-| Action space | none | shared | shared |
-| Retry budget | shared | shared | shared |
-| Executor (`RecoveryExecutor`) | shared | shared | shared |
-| Nominal pose (derived from S0) | shared | shared | shared |
-| Decision logic | none | threshold + compound rules | gpt-5-mini via Responses API |
+This repo should therefore be positioned as a desk-scale, single-camera proxy
+for the per-camera EOL recovery problem, not as a full surround-view deployment
+replica.
 
 ---
 
-## 5. Four Stated Contributions
+## 3. What The Paper Should Claim
 
-1. **Formalization** — calibration failure as a structured decision problem with typed state (`ControllerState`), typed output (`RecoveryDecision`), and a fixed action vocabulary, separating decision intelligence from geometric estimation.
+### 3.1 Core Claim
 
-2. **Empirical nominal reference** — a data-driven nominal pose derived from S0 runs that grounds deviation comparisons in the actual camera geometry, eliminating false `pose_out_of_range` alarms from config-default mismatch.
+Classical geometry remains responsible for target detection, calibration, and
+deviation estimation. The contribution is a bounded recovery controller that
+decides how to respond when the observed evidence is degraded or ambiguous.
 
-3. **Empirical comparison** — a controlled experiment across five real disturbance scenarios with three systems sharing all infrastructure except the decision layer, measuring both recovery rate and false reject rate.
+### 3.2 Publishable Claim
 
-4. **Two-sided result** — the LLM agent is more calibrated than a non-trivial heuristic baseline in both directions: it fires less on recoverable/nominal-adjacent runs and recovers more compound failures.
+We study calibration acceptance and recovery as a bounded sequential decision
+problem around classical estimation. We compare:
 
----
+- baseline acceptance logic
+- a strong deterministic heuristic controller
+- a compact structured learned controller
+- a selective LLM-based agent controller
 
-## 6. Experimental Design
+All controllers share the same diagnostics, action vocabulary, retry budget,
+and safety guards. The agent is only justified if it improves decisions on
+ambiguous multi-factor failures without increasing unsafe accepts.
 
-### Dataset Status (as of 2026-04-19)
+### 3.3 What The Paper Should Not Claim
 
-| Scenario | Runs | Status |
-|---|---|---|
-| S0 — Nominal | 9 usable | collected ✓ |
-| S1 — Overexposed | 10 | collected ✓ |
-| S2 — Low light | 10 | collected ✓ |
-| S3 — Pose deviation | 10 | collected ✓ |
-| S4 — Height variation | 10 | collected ✓ |
-| Mixed-1: S1+S3 (overexposure + pose deviation) | 3 | **to collect** |
-| Mixed-2: S2+S4 (low light + height variation) | 3 | **to collect** |
-| Mixed-3: S1+S4 (overexposure + height variation) | 3 | **to collect** |
+The paper should not claim:
 
-All single-scenario data (S0–S4) is collected. Only mixed-failure runs remain.
-
-**Total target:** 58 runs, ~870–1160 frames.
-
-### Comparison Modes
-
-- **Baseline** — no controller, hard pass/fail on initial frame set
-- **Heuristic** — threshold + compound-condition rule controller (`heuristic_controller.py`)
-- **LLM Agent** — `gpt-5-mini` via `openai_agent.py`, compact state, same action space
-
-### Experimental Matrix
-
-- **S0 runs** → all three modes (measures false reject rate on nominal data)
-- **S1–S4 runs** → all three modes (single-cause failure recovery)
-- **Mixed runs** → all three modes (compound failure recovery — primary differentiator)
+- that the LLM performs calibration
+- that the desk setup reproduces full 4-camera surround-view stitching
+- that moving the target is equivalent to the real EOL physical mechanism
+- that an LLM is required for simple thresholding over a few metrics
 
 ---
 
-## 7. Metrics
+## 4. Automotive EOL To Desk-Proxy Mapping
 
-### Primary (Table 1)
-
-**Recovery Rate:**
-```
-(runs failed by baseline, succeeded by controller) / (runs failed by baseline)
-```
-
-**False Reject Rate:**
-```
-(runs failed by controller) / (runs succeeded by baseline)
-```
-
-### Secondary (Table 2, per-scenario breakdown)
-
-- Final reprojection error on successful runs (accuracy not degraded)
-- Mean retries to success (efficiency)
-- Unrecoverable declaration rate by scenario
-- Nominal reference source and run count (audit transparency)
-
----
-
-## 8. Expected Results
-
-| Scenario type | Baseline | Heuristic | LLM Agent |
-|---|---|---|---|
-| S0 nominal | passes | may false-reject on `low_marker_coverage` or quality thresholds | passes or intervenes minimally |
-| S1–S4 single-cause | fails often | recovers most | similar to heuristic |
-| Mixed failures | fails | partially recovers | clearly better |
-
-The paper's key result: **the agent's advantage is sharpest at the intersection of compound failures and false alarm suppression** — exactly where fixed rules break down.
-
-**Risk mitigation:** If the LLM agent doesn't clearly outperform heuristics on mixed runs, reframe as a compound-failure focus paper. The experimental design supports this pivot without recollecting data.
-
----
-
-## 9. Paper Structure
-
-| Section | Content |
+| Automotive EOL concept | Desk proxy in this repo |
 |---|---|
-| I. Introduction | EOL calibration false reject problem, cost motivation, agent decision layer idea |
-| II. Related Work | (handled separately) |
-| III. System | Pipeline architecture (incl. empirical nominal), compact state design, action space, heuristic rule table, LLM agent design and cost controls |
-| IV. Experimental Setup | Dataset (S0–S4 + 3 mixed), hardware, board config (7×5 ChArUco, 25 mm squares, DICT_4X4_50), three comparison modes |
-| V. Results | Table 1: recovery rate + false reject rate. Table 2: per-scenario breakdown. Figure: agent vs heuristic on mixed runs |
-| VI. Discussion | Where agent wins and why, failure analysis, nominal reference impact, limitations |
-| VII. Conclusion | Summary, EOL generalization, future work (S5, multi-camera) |
+| flashed nominal camera geometry | configured or empirically derived nominal pose |
+| fixed floor calibration target | fixed ChArUco board |
+| vehicle arrives with mount error | disturbed camera pose relative to the fixed board |
+| ride-height or suspension variation | camera height variation relative to the fixed board |
+| plant lighting / reflections | overexposure, low light, glare |
+| target contamination / occlusion | partial visibility |
+| per-camera correction for stitching | accepted deviation estimate from the proxy pipeline |
+
+This mapping is credible only if the main benchmark uses a fixed target and
+varies the camera or environment around it.
 
 ---
 
-## 10. Implementation Status and Remaining Work
+## 5. Revised System Architecture
 
-### Already implemented
+```text
+Fixed-target dataset or live capture
+  -> metadata-aware dataset loading
+  -> ChArUco detection
+  -> image-quality analysis
+  -> calibration / pose estimation
+  -> deviation analysis versus nominal reference
+  -> failure detector with warning vs hard-fail codes
+  -> controller state assembly with retry history
+  -> controller decision
+       - heuristic
+       - learned structured policy
+       - LLM agent
+  -> recovery executor
+  -> retry loop
+  -> acceptance / warning / hard-fail reporting
+```
 
-| Component | Status |
-|---|---|
-| `openai_agent.py` — OpenAI Responses API subprocess entry point | done ✓ |
-| `config/defaults.toml` — `agent_command` + agent settings | done ✓ |
-| `ControllerConfig` — new agent settings fields | done ✓ |
-| `AgentController` — `_compact_state()`, `_build_payload()`, timeout, no fallback | done ✓ |
-| `nominal_reference.py` — empirical nominal derivation | done ✓ |
-| `experiment_runner.py` — two-pass: derive nominal → run modes | done ✓ |
-| `dataset_auditor.py` — two-pass audit with empirical nominal | done ✓ |
-| S0–S4 dataset (49 usable runs) | done ✓ |
+### Shared Components
 
-### Remaining work
+All modes must share:
 
-| Step | Task |
-|---|---|
-| 1 | Add compound-condition rules to heuristic controller |
-| 2 | Add tests for `nominal_reference.py` (`is_eligible`, `default_nominal_reference`, `nominal_reference_to_config`) |
-| 3 | Add tests for `openai_agent.py` (`_build_request_body`, `_extract_output_text`, integration) |
-| 4 | Add tests for `AgentController._compact_state` and `_build_payload` |
-| 5 | Add `compute_paper_metrics()` + `summarize_by_scenario()` to `Evaluator` |
-| 6 | Update `Reporter` + `ExperimentRunner` to write `paper_metrics.json` + `scenario_summary.json` |
-| 7 | Collect 9 mixed-failure runs (manual) |
-| 8 | Run full experiment and verify output |
+- dataset loader and metadata
+- detection and quality analysis
+- calibration and deviation estimation
+- failure detector
+- action executor
+- retry budget
+- hard safety guards
+
+### Variable Component
+
+Only the decision policy should vary across controllers.
+
+---
+
+## 6. Why This Is Not "Just Robust Estimation"
+
+Robust estimation remains important, but it solves a different problem.
+
+Robust estimation helps:
+
+- fit geometry under outliers
+- reduce sensitivity to bad observations
+- stabilize calibration from noisy evidence
+
+The recovery controller decides:
+
+- whether the current result is acceptable
+- whether evidence is too degraded to trust
+- which bounded intervention to try next
+- whether to stop or continue under a retry budget
+
+This distinction only becomes convincing if the controller is evaluated as a
+sequential bounded policy with retry history and cost-aware escalation.
+
+---
+
+## 7. Comparison Systems Required For A Strong Paper
+
+### 7.1 Baseline
+
+- one-pass classical pipeline
+- no recovery controller
+- shared safety thresholds
+
+### 7.2 Heuristic
+
+- deterministic threshold and compound-condition policy
+- scenario-aware where justified
+- same bounded action space as all other controllers
+
+### 7.3 Learned Structured Policy
+
+- compact decision tree, random forest, or gradient-boosted model
+- same structured state used by the heuristic and agent
+- trained only on development data
+- same bounded action space
+
+### 7.4 Agent
+
+- compact structured state
+- retry history
+- bounded actions
+- same safety guards
+- selective escalation only on ambiguous or repeated-failure cases
+
+The learned structured policy is necessary to answer the review question:
+"Why not just use a small classifier?"
+
+---
+
+## 8. Publishability-Critical Pipeline Changes
+
+These are the implementation changes that move the repo from a useful prototype
+to a publishable benchmark.
+
+### 8.1 Fixed-Target Benchmark Support
+
+The pipeline must support datasets where the board stays fixed and the camera or
+environment changes.
+
+Required additions:
+
+- metadata fields: `setup_type`, `camera_motion`, `target_motion`,
+  `reference_pose_id`, `disturbance_bucket`
+- CLI capture support for `--setup-type`
+- dataset filtering by setup type in audit and experiment runs
+
+### 8.2 Acceptance Bands
+
+The pipeline must explicitly separate:
+
+- calibration success
+- acceptance success
+- accept with warning
+- hard fail
+
+Required additions:
+
+- config-defined nominal / warning / hard-fail bands
+- explicit terminal status for `accept_with_warning`
+- reporting for unsafe-accept risk
+
+### 8.3 Sequential Controller State
+
+The controller state must show more than the current metric snapshot.
+
+Required additions:
+
+- previous actions
+- previous failure reasons
+- attempt outcomes
+- remaining retry budget
+- escalation budget or agent-call budget
+
+### 8.4 Learned Policy Baseline
+
+Add a new controller mode:
+
+- `learned`
+
+Required implementation:
+
+- `learned_controller.py`
+- train / load lightweight model artifact
+- deterministic feature extraction from `ControllerState`
+- integration into CLI and experiment runner
+
+### 8.5 Stronger Heuristic Baseline
+
+The heuristic must be reviewer-proof.
+
+Required improvements:
+
+- compound-condition rules
+- scenario-aware rules where justified
+- documented threshold freeze procedure
+- exported rule table in documentation
+
+### 8.6 Dataset Split Support
+
+To avoid tuning leakage, the pipeline should distinguish:
+
+- train
+- development
+- evaluation
+
+Required additions:
+
+- split tags in metadata or split manifest support
+- filtering in training and experiment utilities
+- evaluator reporting that makes the split explicit
+
+### 8.7 Cost-Aware Agent Gating
+
+The paper should not position the agent as the default controller for all runs.
+
+Required behavior:
+
+- deterministic screening first
+- escalate to the agent only on ambiguous states or repeated failure
+- log when the agent was invoked and how often
+
+### 8.8 Stronger Reporting
+
+Required outputs:
+
+- recovery rate
+- false reject rate
+- unsafe accept rate
+- acceptance success rate
+- calibration success rate
+- retries per accepted run
+- agent invocation frequency
+- per-scenario breakdown
+- per-split breakdown
+
+---
+
+## 9. Revised Dataset Requirement
+
+### 9.1 Keep Existing Data
+
+The current moving-target dataset remains useful as:
+
+- development data
+- threshold-tuning data
+- prompt and payload debugging data
+- supplementary robustness evidence
+
+### 9.2 New Fixed-Target Core Scenarios
+
+Minimum fixed-target benchmark:
+
+- `S0_nominal_fixed`
+- `S1_overexposed_fixed`
+- `S2_low_light_fixed`
+- `S3_pose_deviation_fixed`
+- `S4_height_variation_fixed`
+- `S5_partial_visibility_fixed`
+
+Recommended minimum:
+
+- 5 runs each initially
+- 10 runs each if time allows
+
+### 9.3 Mixed Fixed-Target Scenarios
+
+Recommended:
+
+- `M1_fixed`: overexposed + pose deviation
+- `M2_fixed`: low light + partial visibility
+- `M3_fixed`: glare + height variation
+
+Recommended minimum:
+
+- 3-5 runs each
+
+### 9.4 Held-Out Reference Runs
+
+Capture a small held-out fixed-target reference set not used for tuning:
+
+- 5 nominal held-out runs
+- small held-out subsets for pose and height buckets
+
+---
+
+## 10. Revised Experimental Design
+
+### Development Stage
+
+- use current moving-target dataset plus early fixed-target runs
+- tune heuristic thresholds
+- train the learned policy
+- validate safety guards
+
+### Final Evaluation Stage
+
+- evaluate only on held-out fixed-target runs
+- compare baseline, heuristic, learned, and agent
+- run the agent only after deterministic escalation criteria are met
+
+### Key Result To Seek
+
+The most publishable outcome is:
+
+- heuristic and learned controller perform well on simple single-factor cases
+- agent is comparable on easy cases
+- agent improves recovery or reduces false rejects on ambiguous multi-factor
+  failures without increasing unsafe accepts
+
+---
+
+## 11. Success Criteria
+
+This project is publishable if the final benchmark shows all of the following:
+
+1. the benchmark is physically aligned with fixed-target EOL logic
+2. the baseline and heuristic are strong and well documented
+3. the learned structured baseline is included
+4. the agent is evaluated selectively and cost is reported
+5. gains appear on ambiguous multi-factor cases rather than trivial cases
+6. acceptance semantics are realistic and not collapsed into hard pass/fail
+
+---
+
+## 12. Bottom Line
+
+The research idea remains strong, but the publishable version is more precise
+than the current prototype:
+
+- fixed target, not moving target, for the main benchmark
+- target-based pose estimation and acceptance, not full surround-view deployment
+- strong heuristic and learned baselines
+- selective, bounded, sequential agentic recovery
+
+That is the clearest path to a credible automotive EOL-inspired paper.

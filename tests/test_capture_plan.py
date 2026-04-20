@@ -52,10 +52,14 @@ class CapturePlanTests(unittest.TestCase):
                 board_config=BoardConfig(),
                 camera_id="usb_cam_01",
                 notes="test run",
+                setup_type="benchmark_fixed_target",
+                dataset_split="dev",
                 frames=frames,
             )
 
             payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["setup_type"], "benchmark_fixed_target")
+            self.assertEqual(payload["dataset_split"], "dev")
             self.assertEqual(payload["reserved_frame_ids"], ["frame_013.png"])
             self.assertEqual(payload["frame_metadata"]["frame_001.png"]["shot_name"], "center_01")
             self.assertTrue(payload["frame_metadata"]["frame_013.png"]["reserved"])

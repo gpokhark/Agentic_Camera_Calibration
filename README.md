@@ -1,23 +1,28 @@
 # Agentic Camera Calibration
 
 This repository implements a single-camera ChArUco calibration experiment
-pipeline for comparing three recovery modes under controlled disturbance
+pipeline for comparing four recovery modes under controlled disturbance
 scenarios:
 
 - `baseline`: one-pass calibration with no recovery controller
 - `heuristic`: rule-based recovery over a fixed action space
+- `learned`: lightweight structured-policy baseline over the same action space
 - `agent`: external LLM-backed recovery over the same action space
 
 The project is designed around an offline experimental loop:
 
 1. capture scenario-based runs from a USB camera
 2. audit the dataset quality and disturbance fit
-3. run baseline, heuristic, and agent comparisons
+3. run baseline, heuristic, learned, and agent comparisons
 4. export summary metrics and per-run outputs for analysis
 
 Reference design notes live in [docs/PRD.md](docs/PRD.md),
 [docs/architecture.md](docs/architecture.md), and
-[docs/capture_guide.md](docs/capture_guide.md).
+[docs/dataset_capture_playbook.md](docs/dataset_capture_playbook.md). The
+fixed-target benchmark protocol is documented in
+[docs/fixed_target_eol_dataset_plan.md](docs/fixed_target_eol_dataset_plan.md).
+The research north star for keeping the repo aligned with a publishable paper
+is documented in [docs/paper_north_star.md](docs/paper_north_star.md).
 
 ## Setup
 
@@ -57,6 +62,8 @@ Use guided capture for the main run:
   --run-id run_01 `
   --primary-count 12 `
   --reserved-count 6 `
+  --setup-type pilot_moving_target `
+  --dataset-split dev `
   --notes "nominal capture run"
 ```
 
@@ -70,6 +77,8 @@ images for disturbed scenarios:
   --scenario S3_pose_deviation `
   --run-id run_01 `
   --frame-count 3 `
+  --setup-type benchmark_fixed_target `
+  --dataset-split eval `
   --notes "fixed reference frames before disturbed capture"
 ```
 
@@ -77,7 +86,21 @@ What gets written:
 
 - `frame_001.png`, `frame_002.png`, ... for guided capture
 - `ref_001.png`, `ref_002.png`, ... for reference capture
-- `metadata.json` describing scenario, run id, board config, notes, and frame tags
+- `metadata.json` describing scenario, run id, setup type, dataset split, board config, notes, and frame tags
+
+Useful metadata values:
+
+- `--setup-type pilot_moving_target` for the older moving-board development workflow
+- `--setup-type benchmark_fixed_target` for the new fixed-target EOL-style benchmark
+- `--dataset-split train`, `dev`, or `eval` when you want to separate tuning and final evaluation data
+
+For the fixed-target benchmark, the recommended run shape is:
+
+- `3` reference frames
+- `6` primary frames
+- `3` reserved frames
+
+The older moving-target workflow still uses `12` primary and `6` reserved.
 
 ### 2. Audit the Dataset Before Running Experiments
 
@@ -87,7 +110,9 @@ spending time on the full comparison pipeline.
 ```powershell
 .venv\Scripts\accal audit-dataset `
   --dataset-root dataset `
-  --output-dir results/dataset_audit
+  --output-dir results/dataset_audit `
+  --setup-type benchmark_fixed_target `
+  --dataset-split eval
 ```
 
 This generates:
@@ -104,6 +129,7 @@ The auditor checks:
 - calibration success and reprojection error
 - whether the run actually looks like the intended scenario
 - whether a run should be kept, kept with notes, or recaptured
+- which setup type and dataset split the run belongs to
 
 When usable `S0_nominal` runs exist, the auditor also derives an empirical
 nominal reference pose and uses it when judging `S3_pose_deviation` and
@@ -116,7 +142,9 @@ Run all experiment modes across the dataset:
 ```powershell
 .venv\Scripts\accal run-experiments `
   --dataset-root dataset `
-  --output-dir results/comparison_run
+  --output-dir results/comparison_run `
+  --setup-type benchmark_fixed_target `
+  --dataset-split eval
 ```
 
 This produces:
@@ -132,8 +160,54 @@ What this stage does:
 - loads every run under `dataset/`
 - splits each run into primary and reserved frames
 - derives an effective nominal reference from good `S0_nominal` runs
-- executes `baseline`, `heuristic`, and `agent` modes on each run
-- summarizes recovery rate, false reject rate, reprojection error, and retries
+- executes `baseline`, `heuristic`, `learned`, and `agent` modes on each run
+- summarizes calibration success, acceptance success, warning accepts, recovery rate, false reject rate, reprojection error, and retries
+
+Cheap iterative runs are now supported directly from the CLI:
+
+Run only the offline modes, with no LLM API key required:
+
+```powershell
+.venv\Scripts\accal run-experiments `
+  --dataset-root dataset `
+  --output-dir results/comparison_offline `
+  --mode baseline `
+  --mode heuristic `
+  --mode learned
+```
+
+Run only one scenario:
+
+```powershell
+.venv\Scripts\accal run-experiments `
+  --dataset-root dataset `
+  --output-dir results/comparison_s3 `
+  --scenario S3_pose_deviation_fixed `
+  --setup-type benchmark_fixed_target `
+  --mode baseline `
+  --mode heuristic `
+  --mode learned
+```
+
+Run one specific run with the agent enabled:
+
+```powershell
+.venv\Scripts\accal run-experiments `
+  --dataset-root dataset `
+  --output-dir results/comparison_run03_agent `
+  --scenario S3_pose_deviation_fixed `
+  --run-id run_03 `
+  --setup-type benchmark_fixed_target `
+  --dataset-split eval `
+  --mode baseline `
+  --mode heuristic `
+  --mode learned `
+  --mode agent
+```
+
+The nominal reference is still derived from the full discovered dataset before
+filters are applied, so these targeted reruns stay cheaper without changing the
+reference logic.
 
 ### 4. Review the Outputs
 
@@ -143,6 +217,7 @@ Use the outputs for different levels of analysis:
 - `results.json` for per-run debugging and controller traces
 - `summary.json` for overall mode-level metrics
 - `scenario_summary.json` for scenario-by-scenario tables
+- `summary.json` now separates clean accepts from `accept_with_warning`
 - `paper_metrics.json` for headline comparison numbers such as recovery rate
 
 ## Agent Configuration
@@ -166,8 +241,9 @@ $env:OPENAI_API_KEY = "your-key-here"
 ```
 
 If you want to work on the classical pipeline only, audit the dataset and run
-tests first, then edit `config/defaults.toml` or use a local agent backend
-before launching `run-experiments`.
+tests first, then run `baseline`, `heuristic`, and `learned` modes without any
+LLM API key. Add `--mode agent` only for the scenarios or run ids you actually
+want to spend API budget on.
 
 ## Dataset Layout
 
@@ -195,6 +271,22 @@ dataset/
 Frames after the configured `initial_frame_count` are treated as reserved unless
 `metadata.json` explicitly marks them.
 
+For the publishable fixed-target benchmark, it is useful to add setup-type and
+split structure either in metadata or in the directory layout. For example:
+
+```text
+dataset/
+  fixed_target_benchmark/
+    eval/
+      S3_pose_deviation_fixed/
+        run_01/
+          frame_001.png
+          metadata.json
+```
+
+If folder names do not encode this, the loader still reads `setup_type` and
+`dataset_split` from `metadata.json`.
+
 ## Current Pipeline Architecture
 
 The runtime pipeline is:
@@ -213,9 +305,9 @@ USB camera or dataset frames
   -> experiment summaries and reports
 ```
 
-The important architectural rule is that `baseline`, `heuristic`, and `agent`
-share the same detection, quality, calibration, deviation, failure, and action
-execution layers. The only thing that changes is the decision layer.
+The important architectural rule is that `baseline`, `heuristic`, `learned`,
+and `agent` share the same detection, quality, calibration, deviation, failure,
+and action execution layers. The only thing that changes is the decision layer.
 
 ## File Map
 
@@ -278,6 +370,9 @@ the current codebase.
   defines the abstract recovery-controller interface.
 - [src/agentic_camera_calibration/controllers/heuristic_controller.py](src/agentic_camera_calibration/controllers/heuristic_controller.py)
   implements the rule-based controller over the shared action space.
+- [src/agentic_camera_calibration/controllers/learned_controller.py](src/agentic_camera_calibration/controllers/learned_controller.py)
+  implements the lightweight feature-scored structured-policy baseline over the
+  same action space.
 - [src/agentic_camera_calibration/controllers/agent_controller.py](src/agentic_camera_calibration/controllers/agent_controller.py)
   packages `ControllerState`, invokes an external agent command, and validates
   the returned JSON decision.
@@ -314,8 +409,8 @@ $env:UV_CACHE_DIR = "$PWD\\.uv-cache"
 uv venv --python 3.12 .venv
 uv sync
 .venv\Scripts\python -m unittest discover -s tests -v
-.venv\Scripts\accal audit-dataset --dataset-root dataset --output-dir results/dataset_audit
-.venv\Scripts\accal run-experiments --dataset-root dataset --output-dir results/comparison_run
+.venv\Scripts\accal audit-dataset --dataset-root dataset --output-dir results/dataset_audit --setup-type benchmark_fixed_target --dataset-split eval
+.venv\Scripts\accal run-experiments --dataset-root dataset --output-dir results/comparison_run --setup-type benchmark_fixed_target --dataset-split eval --mode baseline --mode heuristic --mode learned
 ```
 
 If you are also collecting new data, insert `capture-guided` and optional

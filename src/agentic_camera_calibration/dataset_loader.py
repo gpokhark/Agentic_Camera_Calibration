@@ -10,6 +10,34 @@ from .models import FrameRecord, RunRecord
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
 
 
+def _infer_setup_type(run_dir: Path, metadata: dict, scenario: str) -> str:
+    explicit = str(metadata.get("setup_type", "")).strip()
+    if explicit:
+        return explicit
+
+    if scenario.casefold().endswith("_fixed"):
+        return "benchmark_fixed_target"
+
+    lowered_parts = {part.casefold() for part in run_dir.parts}
+    if "fixed_target_benchmark" in lowered_parts:
+        return "benchmark_fixed_target"
+    if "pilot_moving_target" in lowered_parts:
+        return "pilot_moving_target"
+    return "unspecified"
+
+
+def _infer_dataset_split(run_dir: Path, metadata: dict) -> str:
+    explicit = str(metadata.get("dataset_split", metadata.get("split", ""))).strip()
+    if explicit:
+        return explicit
+
+    lowered_parts = {part.casefold() for part in run_dir.parts}
+    for split_name in ("train", "dev", "eval"):
+        if split_name in lowered_parts:
+            return split_name
+    return "unspecified"
+
+
 class DatasetLoader:
     def __init__(self, config: CalibrationConfig) -> None:
         self.config = config
@@ -35,6 +63,11 @@ class DatasetLoader:
         scenario = metadata.get("scenario", run_dir.parent.name)
         run_id = metadata.get("run_id", run_dir.name)
         reserved_ids = set(metadata.get("reserved_frame_ids", []))
+        setup_type = _infer_setup_type(run_dir, metadata, scenario)
+        dataset_split = _infer_dataset_split(run_dir, metadata)
+        metadata = dict(metadata)
+        metadata.setdefault("setup_type", setup_type)
+        metadata.setdefault("dataset_split", dataset_split)
 
         frames: list[FrameRecord] = []
         image_paths = sorted(path for path in run_dir.iterdir() if path.suffix.lower() in IMAGE_EXTENSIONS)
@@ -48,6 +81,8 @@ class DatasetLoader:
                     frame_id=frame_id,
                     scenario=scenario,
                     run_id=run_id,
+                    setup_type=setup_type,
+                    dataset_split=dataset_split,
                     image_path=image_path,
                     is_reserved=is_reserved,
                     metadata=metadata.get("frame_metadata", {}).get(frame_id, {}),
@@ -59,6 +94,8 @@ class DatasetLoader:
             scenario=scenario,
             run_path=run_dir,
             frames=frames,
+            setup_type=setup_type,
+            dataset_split=dataset_split,
             metadata=metadata,
         )
 

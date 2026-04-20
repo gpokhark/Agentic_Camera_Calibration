@@ -89,6 +89,8 @@ class AgentController(RecoveryController):
         compact = {
             "run_id": state.run_id,
             "scenario": state.scenario,
+            "setup_type": state.setup_type,
+            "dataset_split": state.dataset_split,
             "retry_index": state.retry_index,
             "frames_total": state.frames_total,
             "frames_active": state.frames_active,

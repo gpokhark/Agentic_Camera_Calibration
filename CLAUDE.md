@@ -43,7 +43,7 @@ uv run ruff check src tests
 
 ## Architecture
 
-The system runs three calibration modes on every dataset run — **baseline** (no controller), **heuristic**, and **agent** — to compare recovery performance. This is the core paper experiment: measuring recovery rate and false reject rate across controlled failure scenarios.
+The system runs four calibration modes on every dataset run — **baseline** (no controller), **heuristic**, **learned**, and **agent** — to compare recovery performance. This is the core paper experiment: measuring recovery rate and false reject rate across controlled failure scenarios.
 
 ### Pipeline (per run)
 
@@ -59,13 +59,14 @@ frames → CharucoDetector → QualityAnalyzer → CalibrationEngine
                                                               re-run calibration
 ```
 
-`CalibrationOrchestrator` (`orchestrator.py`) drives this retry loop. `ExperimentRunner` (`experiment_runner.py`) does a **two-pass** run: first derives an empirical nominal pose from S0 runs via `EmpiricalNominalEstimator`, then runs the orchestrator three times per dataset run (baseline/heuristic/agent) using that pose as the reference.
+`CalibrationOrchestrator` (`orchestrator.py`) drives this retry loop. `ExperimentRunner` (`experiment_runner.py`) does a **two-pass** run: first derives an empirical nominal pose from S0 runs via `EmpiricalNominalEstimator`, then runs the orchestrator once per selected mode (baseline/heuristic/learned/agent) per dataset run using that pose as the reference.
 
 ### Controllers
 
 All controllers implement `RecoveryController.decide(state: ControllerState) -> RecoveryDecision` (`controllers/base.py`).
 
 - **`HeuristicController`** — rule-based: single-condition rules (saturation, blur, lighting, corner count, coverage, pose) plus three compound-condition rules: overexposure+low_corner_count → CLAHE; partial_visibility+low_marker_coverage → edge_and_tilt views; pose_out_of_range blocked when overexposure is present.
+- **`LearnedController`** — feature-scored structured baseline (no external ML deps): computes numeric deficit/excess signals from state metrics, scores candidate actions, selects top-K by score. Declares unrecoverable if the same failure signature repeats ≥2 times. Configured via `learned_min_action_score` in `[controller]`.
 - **`AgentController`** — calls an external subprocess with a compact JSON state on stdin, reads a `{diagnosis, actions, confidence, declare_unrecoverable}` JSON object on stdout. No heuristic fallback — raises `RuntimeError` if the command cannot be resolved.
 
 ### Agent backend selection
